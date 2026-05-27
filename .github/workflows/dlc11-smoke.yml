@@ -1,0 +1,25 @@
+name: DLC 1.1 smoke
+
+# Cheap end-to-end pipeline check triggered on every push and pull-request
+# to main. Delegates to the reusable dlc11-sweep.yml workflow with
+# dlc_smoke.txt, which is fetched automatically from the repo configured in
+# the FASTPREP_REPO repository variable. All other inputs use workflow defaults
+# (ROSCO v2.10.5, controller from turbinesim/ROSCO latest, OpenFAST v4.2.0).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: dlc11-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    uses: ./.github/workflows/dlc11-sweep.yml
+    secrets: inherit
+    with:
+      dlc_file: 'dlc_smoke.txt'

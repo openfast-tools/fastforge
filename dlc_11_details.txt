@@ -1,0 +1,54 @@
+% =========================================================================
+%  DLC Campaign Configuration File — NREL 5 MW Onshore Reference Turbine
+%
+%  Lines starting with '%' are comments and are ignored.
+%  Blank lines are ignored.
+%
+%  SECTION 1 -- key = value pairs (project & simulation settings)
+%  SECTION 2 -- DLC table, one row per condition set
+%               Delimiter: whitespace (spaces or tabs)
+%               Columns:
+%                 DLC_ID       char    e.g. DLC1.1
+%                 TurbModel    char    NTM | ETM | EWM1 | EWM50 | STD
+%                 WSP_min      double  lowest hub-height wind speed [m/s]
+%                 WSP_max      double  highest hub-height wind speed [m/s]
+%                 WSP_step     double  wind speed increment [m/s]
+%                 N_seeds      int     number of random realisations
+%                 Shear        double  power-law wind shear exponent [-]
+%                 Yaw_deg      double  yaw error [deg]  (signed)
+%                 IA_deg       double  inflow (upflow) angle [deg]
+%                 Active       int     1 = include in campaign, 0 = skip
+% =========================================================================
+
+% ---- Project identity ---------------------------------------------------
+project_name        = NREL5MW_DLC
+
+% ---- TurbSim grid / timing ----------------------------------------------
+% Hub height must match the OpenFAST model (NREL 5 MW: 90 m)
+ref_height_m        = 90.0
+grid_ny             = 31
+grid_nz             = 31
+grid_height_m       = 145.0
+grid_width_m        = 145.0
+time_step_s         = 0.05
+
+% IEC spectral and turbulence parameters
+% NOTE: turbulence_class and spectrum_model are informational here;
+%       the TurbSim template (90m_12mps_twr.inp) is the authoritative source
+%       for IECturbc, IECstandard, and TurbModel keywords written to TurbSim.
+spectrum_model      = IECKAI
+IEC_standard        = 1-ED3
+turbulence_class    = B
+
+% ---- OpenFAST simulation settings ---------------------------------------
+% 660 s total = 60 s transient (discarded in post) + 600 s production window
+t_max_s             = 660.0
+dt_s                = 0.00625
+t_transient_s       = 60.0
+write_binary_output = 1
+
+% ---- DLC table ----------------------------------------------------------
+% DLC_ID   TurbModel   WSP_min  WSP_max  WSP_step  N_seeds  Shear  Yaw_deg  IA_deg  Active
+
+% DLC 1.1  NTM -- normal power production, 9 wind speeds x 6 seeds = 54 cases
+DLC1.1    NTM    4    20    2    3    0.14    0.0    0.0    1

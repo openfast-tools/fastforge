@@ -1,0 +1,539 @@
+name: DLC campaign
+
+# Reusable workflow: call with workflow_call from another workflow, or trigger
+# manually with workflow_dispatch.
+#
+# Three-job pipeline:
+#   prepare      – fetch ROSCO models, download controller release assets,
+#                  patch ServoDyn, run fastprep, build matrix, upload artifact
+#   simulate     – matrix: TurbSim + OpenFAST per .fst case  (action.yml)
+#   post_process – collect .outb artifacts, run postfast, upload STATS outputs
+
+on:
+  workflow_call:
+    inputs:
+      dlc_file:
+        description: 'DLC config file (repo-root-relative).'
+        type: string
+        default: 'dlc_11_details.txt'
+      model_repo:
+        description: 'Repository containing the NREL-5MW turbine model and TurbSim template (owner/repo)'
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      model_tag:
+        description: 'Release tag for the turbine model and TurbSim template'
+        type: string
+        default: 'v2.10.5'
+      controller_repo:
+        description: 'Public repository containing the controller release (owner/repo)'
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      controller_tag:
+        description: 'Release tag to download the controller from'
+        type: string
+        default: 'v2.9.0'
+
+      fastprep_version:
+        description: 'fastprep release tag, or "latest"'
+        type: string
+        default: 'latest'
+      openfast_version:
+        description: 'OpenFAST release tag'
+        type: string
+        default: 'v4.2.0'
+      postfast_version:
+        description: 'postfast release tag, or "latest"'
+        type: string
+        default: 'latest'
+
+  workflow_dispatch:
+    inputs:
+      dlc_file:
+        description: 'DLC config file (repo-root-relative).'
+        type: string
+        default: 'dlc_11_details.txt'
+      model_repo:
+        description: 'Repository containing the NREL-5MW turbine model and TurbSim template (owner/repo)'
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      model_tag:
+        description: 'Release tag for the turbine model and TurbSim template'
+        type: string
+        default: 'v2.10.5'
+      controller_repo:
+        description: 'Public repository containing the controller release (owner/repo)'
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      controller_tag:
+        description: 'Release tag to download the controller from'
+        type: string
+        default: 'v2.9.0'
+
+      fastprep_version:
+        description: 'fastprep release tag, or "latest"'
+        type: string
+        default: 'latest'
+      openfast_version:
+        description: 'OpenFAST release tag'
+        type: string
+        default: 'v4.2.0'
+      postfast_version:
+        description: 'postfast release tag, or "latest"'
+        type: string
+        default: 'latest'
+
+jobs:
+  # =========================================================================
+  # JOB 1 — prepare
+  # Fetch ROSCO models, fetch controller into campaign dir, patch ServoDyn,
+  # run fastprep, build matrix, upload campaign-setup artifact.
+  # =========================================================================
+  prepare:
+    runs-on: windows-latest
+    outputs:
+      matrix:       ${{ steps.build_matrix.outputs.matrix }}
+      project_name: ${{ steps.parse_dlc.outputs.project_name }}
+      fp_version:   ${{ steps.resolve_fp.outputs.fp_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Resolve "latest" fastprep tag to a pinned version so every matrix
+      # job uses the identical binary regardless of new releases mid-run.
+      # ------------------------------------------------------------------
+      - name: Resolve fastprep version
+        id: resolve_fp
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ORG_TOKEN }}
+        run: |
+          $ver = '${{ inputs.fastprep_version }}'
+          if ($ver -eq 'latest') {
+            $rel = gh api repos/${{ vars.FASTPREP_REPO }}/releases/latest | ConvertFrom-Json
+            $ver = $rel.tag_name
+            Write-Host "Resolved fastprep latest -> $ver"
+          }
+          "fp_version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Cache fastprep binary
+        id: cache_fp
+        uses: actions/cache@v4
+        with:
+          path: .bin/prep_exe.exe
+          key: fastprep-${{ steps.resolve_fp.outputs.fp_version }}-win64
+
+      - name: Download fastprep binary
+        if: steps.cache_fp.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ORG_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path .bin | Out-Null
+          $ver = '${{ steps.resolve_fp.outputs.fp_version }}'
+          Write-Host "Downloading fastprep $ver ..."
+          gh release download $ver `
+            --repo ${{ vars.FASTPREP_REPO }} `
+            --pattern 'prep_exe.exe' `
+            --dir .bin
+          $sizeMB = [math]::Round((Get-Item .bin\prep_exe.exe).Length / 1MB, 1)
+          Write-Host "Downloaded prep_exe.exe ($sizeMB MB)"
+
+      # ------------------------------------------------------------------
+      # Parse project_name from DLC file — needed before controller fetch
+      # so the controller is copied into work/<project_name>/controllers/
+      # ------------------------------------------------------------------
+      - name: Parse project_name from DLC file
+        id: parse_dlc
+        shell: pwsh
+        run: |
+          $dlcFile = '${{ inputs.dlc_file }}'
+          $line = Get-Content $dlcFile |
+            Where-Object { $_ -match '^\s*project_name\s*=' } |
+            Select-Object -First 1
+          $projectName = ($line -replace '^\s*project_name\s*=\s*', '' `
+                               -replace '\s*%.*$', '').Trim()
+          if ([string]::IsNullOrWhiteSpace($projectName)) {
+            throw "Could not parse project_name from $dlcFile"
+          }
+          Write-Host "project_name: $projectName"
+          "project_name=$projectName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # ------------------------------------------------------------------
+      # Fetch ROSCO turbine model and TurbSim template (public repo).
+      # Sparse checkout of NREL-5MW/ and Wind/ directories only.
+      # ------------------------------------------------------------------
+      - name: Fetch ROSCO turbine model and TurbSim template
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.model_repo }}
+          ref: ${{ inputs.model_tag }}
+          sparse-checkout: |
+            Examples/Test_Cases/NREL-5MW
+            Examples/Test_Cases/Wind
+          sparse-checkout-cone-mode: true
+          path: rosco
+
+      # ------------------------------------------------------------------
+      # Fetch controller from release assets.
+      # Always downloads the binary (*.dll / *.so / *.dylib).
+      # Also attempts to grab *.IN and Cp/Ct data files from the same
+      # release — if a controller repo bundles all three, no fallback is
+      # needed.  If the release only ships the binary, the ServoDyn patch
+      # step below falls back to the files in the model sparse checkout.
+      # ------------------------------------------------------------------
+      - name: Fetch controller from ROSCO release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $destDir = "work\${{ steps.parse_dlc.outputs.project_name }}\controllers"
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+          Write-Host "Downloading controller from ${{ inputs.controller_repo }} @ ${{ inputs.controller_tag }} ..."
+          gh release download '${{ inputs.controller_tag }}' `
+            --repo '${{ inputs.controller_repo }}' `
+            --pattern '*.dll' --pattern '*.so' --pattern '*.dylib' `
+            --pattern '*.IN'  --pattern 'Cp_Ct_Cq*' --pattern 'Cp_data*' --pattern 'Ct_data*' `
+            --dir $destDir
+
+          # Remove any 32-bit binaries — keep only 64-bit DLL/SO/dylib
+          Get-ChildItem $destDir | Where-Object {
+            $_.Name -match '32.?bit|[_\-.]x86[_\-.]|win32' -and
+            $_.Extension -match '\.(dll|so|dylib)$'
+          } | ForEach-Object {
+            Write-Host "Removing 32-bit binary: $($_.Name)"
+            Remove-Item $_.FullName -Force
+          }
+
+          Write-Host "Controller files in $destDir :"
+          Get-ChildItem $destDir | Format-Table Name, @{N='Size (KB)';E={[math]::Round($_.Length/1KB,1)}}
+
+      # ------------------------------------------------------------------
+      # Patch DLL_FileName and DLL_InFile in ServoDyn.dat.
+      # DLL  — always taken from the controller release download dir.
+      # .IN  — preferred from the controller dir (bundled with release);
+      #        falls back to the model sparse checkout if absent.
+      # Cp/Ct data files referenced inside the .IN are co-located with it,
+      # so no further patching of those references is needed.
+      # ------------------------------------------------------------------
+      - name: Patch ServoDyn controller paths
+        shell: pwsh
+        run: |
+          $controllerDir = "${{ github.workspace }}\work\${{ steps.parse_dlc.outputs.project_name }}\controllers"
+
+          $dllFile = Get-ChildItem $controllerDir -Filter *.dll | Select-Object -First 1
+          if (-not $dllFile) { throw "No .dll found in $controllerDir" }
+
+          # Prefer .IN bundled with the controller release; fall back to model repo
+          $inFile = Get-ChildItem $controllerDir -Filter *.IN | Select-Object -First 1
+          if ($inFile) {
+            Write-Host ".IN source: controller release ($($inFile.FullName))"
+          } else {
+            Write-Host ".IN not found in controller dir — falling back to model repo"
+            $inFile = Get-ChildItem 'rosco\Examples\Test_Cases\NREL-5MW' -Filter *.IN | Select-Object -First 1
+          }
+          if (-not $inFile) { throw "No .IN file found in controller dir or rosco\Examples\Test_Cases\NREL-5MW" }
+
+          $dllPath = $dllFile.FullName
+          $inPath  = $inFile.FullName
+          Write-Host "DLL_FileName -> $dllPath"
+          Write-Host "DLL_InFile   -> $inPath"
+
+          $servoDynPath = "rosco\Examples\Test_Cases\NREL-5MW\NRELOffshrBsline5MW_Onshore_ServoDyn.dat"
+          $content = Get-Content $servoDynPath
+          $content = $content | ForEach-Object {
+              if ($_ -match '\bDLL_FileName\b') {
+                  $_ -replace '"[^"]*"', "`"$dllPath`""
+              } elseif ($_ -match '\bDLL_InFile\b') {
+                  $_ -replace '"[^"]*"', "`"$inPath`""
+              } else { $_ }
+          }
+          Set-Content $servoDynPath $content -Encoding utf8NoBOM
+          Write-Host "ServoDyn.dat patched."
+
+      # ------------------------------------------------------------------
+      # Run fastprep: generates Model/, Wind/*.inp, FST/**/*.fst
+      # ------------------------------------------------------------------
+      - name: Run fastprep
+        shell: pwsh
+        run: |
+          $fstFile  = (Resolve-Path 'rosco\Examples\Test_Cases\NREL-5MW\NREL-5MW.fst').Path
+          $dlcFile  = (Resolve-Path '${{ inputs.dlc_file }}').Path
+          $tsTmpl   = (Resolve-Path 'rosco\Examples\Test_Cases\Wind\90m_12mps_twr.inp').Path
+          $studyDir = (New-Item -ItemType Directory -Force -Path 'work').FullName
+
+          Write-Host "fastprep args:"
+          Write-Host "  fst_file    : $fstFile"
+          Write-Host "  dlc_file    : $dlcFile"
+          Write-Host "  study_path  : $studyDir"
+          Write-Host "  ts_template : $tsTmpl"
+
+          .\.bin\prep_exe.exe $fstFile $dlcFile $studyDir $tsTmpl
+          if ($LASTEXITCODE -ne 0) { throw "fastprep failed (exit code $LASTEXITCODE)" }
+
+      # ------------------------------------------------------------------
+      # Build the simulation matrix: one entry per .fst file
+      # ------------------------------------------------------------------
+      - name: Build simulation matrix
+        id: build_matrix
+        shell: pwsh
+        run: |
+          $projectDir = "work\${{ steps.parse_dlc.outputs.project_name }}"
+          $items = Get-ChildItem -Path "$projectDir\FST" -Recurse -Filter '*.fst' |
+            ForEach-Object {
+              $rel = $_.FullName.Substring(
+                       "$pwd\$projectDir\".Length).Replace('\', '/')
+              [ordered]@{ fst_path = $rel }
+            }
+          if ($items.Count -eq 0) {
+            throw 'No .fst files found — fastprep may have failed'
+          }
+          $matrix = [ordered]@{ include = @($items) } |
+                    ConvertTo-Json -Compress -Depth 3
+          Write-Host "$($items.Count) simulation case(s)"
+          "matrix=$matrix" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # ------------------------------------------------------------------
+      # Write job summary
+      # ------------------------------------------------------------------
+      - name: Write prepare summary
+        if: always()
+        shell: pwsh
+        run: |
+          $caseCount = 'N/A'
+          $matrixJson = '${{ steps.build_matrix.outputs.matrix }}'
+          if ($matrixJson) {
+            try { $caseCount = ($matrixJson | ConvertFrom-Json).include.Count } catch {}
+          }
+          $s  = "## Prepare`n`n"
+          $s += "| Setting | Value |`n|---|---|`n"
+          $s += "| Project name | ``${{ steps.parse_dlc.outputs.project_name }}`` |`n"
+          $s += "| fastprep version | ``${{ steps.resolve_fp.outputs.fp_version }}`` |`n"
+          $s += "| Model repo | ``${{ inputs.model_repo }}`` |`n"
+          $s += "| Model tag  | ``${{ inputs.model_tag }}`` |`n"
+          $s += "| Controller | ``${{ inputs.controller_repo }}`` @ ``${{ inputs.controller_tag }}`` |`n"
+          $s += "| OpenFAST version | ``${{ inputs.openfast_version }}`` |`n"
+          $s += "| Cases generated | $caseCount |`n"
+          $s | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      # ------------------------------------------------------------------
+      # Upload the campaign directory as an artifact.
+      # Includes FST/, Wind/*.inp, Model/, and controllers/ (DLL + IN).
+      # Simulate runners download this to the same path so absolute DLL
+      # paths in ServoDyn.dat remain valid.
+      # ------------------------------------------------------------------
+      - name: Upload campaign-setup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-setup
+          path: work/${{ steps.parse_dlc.outputs.project_name }}/
+          retention-days: 3
+
+  # =========================================================================
+  # JOB 2 — simulate  (matrix: one runner per .fst file)
+  # Downloads campaign artifact (which includes the controller), then calls
+  # action.yml which runs TurbSim (if needed) + OpenFAST and uploads the .outb.
+  # =========================================================================
+  simulate:
+    needs: prepare
+    runs-on: windows-latest
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download campaign-setup artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-setup
+          path: work/${{ needs.prepare.outputs.project_name }}
+
+      - name: Run simulation case
+        uses: ./
+        with:
+          fst_rel_path:            ${{ matrix.fst_path }}
+          campaign_dir:            ${{ github.workspace }}/work/${{ needs.prepare.outputs.project_name }}
+          openfast_version:        ${{ inputs.openfast_version }}
+          upload_artifact:         'true'
+          artifact_retention_days: '90'
+
+  # =========================================================================
+  # JOB 3 — post_process  (always runs, even if some simulate jobs failed)
+  # Collects all per-case .outb artifacts, organises into DLC subfolders,
+  # runs postfast, uploads STATS outputs, then cleans up per-case artifacts.
+  # =========================================================================
+  post_process:
+    needs: [prepare, simulate]
+    if: always()
+    runs-on: windows-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # Download campaign-setup artifact so postfast results sit inside
+      # the fastprep folder structure.
+      # ------------------------------------------------------------------
+      - name: Download campaign-setup artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-setup
+          path: work/${{ needs.prepare.outputs.project_name }}
+
+      # ------------------------------------------------------------------
+      # Collect all per-case .outb artifacts, organise into
+      # work/<project_name>/post-processed/<DLC_ID>/*.outb
+      # ------------------------------------------------------------------
+      - name: Download all outb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: outb-*
+          path: outb_staging
+          merge-multiple: true
+
+      - name: Organise outbs into post-processed/<DLC_ID>/
+        shell: pwsh
+        run: |
+          $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
+          $outbs = Get-ChildItem outb_staging -Filter '*.outb' -ErrorAction SilentlyContinue
+          if ($outbs.Count -eq 0) {
+            Write-Warning 'No .outb files collected — all simulate jobs may have failed'
+          } else {
+            Write-Host "$($outbs.Count) .outb file(s) — organising into $postfastDir ..."
+            foreach ($f in $outbs) {
+              $dlcId = $f.BaseName.Split('_')[0]
+              $dest  = New-Item -ItemType Directory -Force -Path "$postfastDir\$dlcId"
+              Move-Item $f.FullName (Join-Path $dest $f.Name)
+            }
+            Get-ChildItem $postfastDir -Recurse -Filter '*.outb' | Sort-Object Name |
+              Format-Table Name, @{N='Size (MB)';E={[math]::Round($_.Length/1MB,1)}}
+          }
+
+      # ------------------------------------------------------------------
+      # Upload combined .outb artifact before running postfast
+      # ------------------------------------------------------------------
+      - name: Upload combined outb outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dlc-campaign-outputs-${{ github.run_id }}
+          path: work/${{ needs.prepare.outputs.project_name }}/post-processed/
+          if-no-files-found: warn
+          retention-days: 90
+
+      # ------------------------------------------------------------------
+      # Resolve, cache and download postfast binary
+      # ------------------------------------------------------------------
+      - name: Resolve postfast version
+        id: resolve_pf
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ORG_TOKEN }}
+        run: |
+          $ver = '${{ inputs.postfast_version }}'
+          if ($ver -eq 'latest') {
+            $rel = gh api repos/${{ vars.POSTFAST_REPO }}/releases/latest | ConvertFrom-Json
+            $ver = $rel.tag_name
+            Write-Host "Resolved postfast latest -> $ver"
+          }
+          "pf_version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Cache postfast binary
+        id: cache_pf
+        uses: actions/cache@v4
+        with:
+          path: .bin/postfast.exe
+          key: postfast-${{ steps.resolve_pf.outputs.pf_version }}-win64
+
+      - name: Download postfast binary
+        if: steps.cache_pf.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ORG_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path .bin | Out-Null
+          $ver = '${{ steps.resolve_pf.outputs.pf_version }}'
+          Write-Host "Downloading postfast $ver ..."
+          gh release download $ver `
+            --repo ${{ vars.POSTFAST_REPO }} `
+            --pattern 'postfast.exe' `
+            --dir .bin
+          $sizeMB = [math]::Round((Get-Item .bin\postfast.exe).Length / 1MB, 1)
+          Write-Host "Downloaded postfast.exe ($sizeMB MB)"
+
+      # ------------------------------------------------------------------
+      # Run postfast
+      # ------------------------------------------------------------------
+      - name: Run postfast
+        shell: pwsh
+        run: |
+          $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
+          $outbCount = (Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue).Count
+          if ($outbCount -eq 0) {
+            Write-Warning 'Skipping postfast — no .outb files available'
+          } else {
+            Write-Host "Running postfast on $postfastDir ($outbCount .outb file(s)) ..."
+            .\.bin\postfast.exe $postfastDir
+            if ($LASTEXITCODE -ne 0) { throw "postfast failed (exit code $LASTEXITCODE)" }
+          }
+
+      # ------------------------------------------------------------------
+      # Delete .outb files from post-processed/ — STATS folders remain
+      # ------------------------------------------------------------------
+      - name: Remove .outb files from post-processed
+        shell: pwsh
+        run: |
+          $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
+          $outbs = Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue
+          Write-Host "Deleting $($outbs.Count) .outb file(s) from $postfastDir ..."
+          $outbs | Remove-Item -Force
+
+      # ------------------------------------------------------------------
+      # Upload postfast STATS outputs
+      # ------------------------------------------------------------------
+      - name: Upload postfast outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: dlc-postfast-outputs-${{ github.run_id }}
+          path: |
+            work/${{ needs.prepare.outputs.project_name }}/post-processed/STATS/
+            work/${{ needs.prepare.outputs.project_name }}/post-processed/*/STATS/
+          if-no-files-found: warn
+          retention-days: 90
+
+      # ------------------------------------------------------------------
+      # Write job summary
+      # ------------------------------------------------------------------
+      - name: Write post_process summary
+        if: always()
+        shell: pwsh
+        run: |
+          $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
+          $outbCount = (Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue).Count
+          $runUrl = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $s  = "## Post Process`n`n"
+          $s += "| Item | Detail |`n|---|---|`n"
+          $s += "| .outb files processed | $outbCount |`n"
+          $s += "| Combined outputs | [dlc-campaign-outputs-${{ github.run_id }}]($runUrl) |`n"
+          $s += "| Postfast outputs  | [dlc-postfast-outputs-${{ github.run_id }}]($runUrl) |`n"
+          $s | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      # ------------------------------------------------------------------
+      # Delete per-case outb artifacts
+      # ------------------------------------------------------------------
+      - name: Delete per-case outb artifacts
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.ORG_TOKEN }}
+        run: |
+          $artifacts = gh api `
+            repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts `
+            | ConvertFrom-Json | Select-Object -ExpandProperty artifacts `
+            | Where-Object { $_.name -like 'outb-*' }
+          Write-Host "Deleting $($artifacts.Count) per-case artifact(s) ..."
+          foreach ($a in $artifacts) {
+            gh api --method DELETE `
+              repos/${{ github.repository }}/actions/artifacts/$($a.id) | Out-Null
+            Write-Host "  Deleted: $($a.name)"
+          }

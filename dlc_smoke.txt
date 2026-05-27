@@ -1,0 +1,32 @@
+% =========================================================================
+%  DLC Smoke-Test Configuration — NREL 5 MW Onshore Reference Turbine
+%
+%  Minimal single-case run used by the dlc11-smoke.yml CI workflow.
+%  1 wind speed x 1 seed = 1 case — just enough to verify the full
+%  prepare → simulate → post_process pipeline end-to-end.
+% =========================================================================
+
+% ---- Project identity ---------------------------------------------------
+project_name        = NREL5MW_DLC
+
+% ---- TurbSim grid / timing ----------------------------------------------
+ref_height_m        = 90.0
+grid_ny             = 31
+grid_nz             = 31
+grid_height_m       = 145.0
+grid_width_m        = 145.0
+time_step_s         = 0.05
+
+spectrum_model      = IECKAI
+IEC_standard        = 1-ED3
+turbulence_class    = B
+
+% ---- OpenFAST simulation settings ---------------------------------------
+t_max_s             = 120.0
+dt_s                = 0.00625
+t_transient_s       = 60.0
+write_binary_output = 1
+
+% ---- DLC table ----------------------------------------------------------
+% DLC_ID   TurbModel   WSP_min  WSP_max  WSP_step  N_seeds  Shear  Yaw_deg  IA_deg  Active
+DLC1.1    NTM    12    12    2    1    0.14    0.0    0.0    1

@@ -1,0 +1,16 @@
+# OpenFAST / TurbSim runtime artefacts (never committed; produced inside CI work dir)
+*.bts
+*.outb
+*.sum
+*.ech
+*.dbg
+*.dbg2
+*.dbg3
+work/
+.bin/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

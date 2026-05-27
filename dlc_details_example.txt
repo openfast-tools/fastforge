@@ -1,0 +1,68 @@
+% =========================================================================
+%  DLC Campaign Configuration File
+%  Format: plain text, UTF-8 (ASCII only)
+%
+%  Lines starting with '%' are comments and are ignored.
+%  Blank lines are ignored.
+%
+%  SECTION 1 -- key = value pairs (project & simulation settings)
+%  SECTION 2 -- DLC table, one row per condition set
+%               Delimiter: whitespace (spaces or tabs)
+%               Columns:
+%                 DLC_ID       char    e.g. DLC1.1
+%                 TurbModel    char    NTM | ETM | EWM1 | EWM50
+%                 WSP_min      double  lowest hub-height wind speed [m/s]
+%                 WSP_max      double  highest hub-height wind speed [m/s]
+%                 WSP_step     double  wind speed increment [m/s]
+%                 N_seeds      int     number of random realisations
+%                 Shear        double  power-law wind shear exponent [-]
+%                 Yaw_deg      double  yaw error [deg]  (signed, e.g. -8 +8)
+%                 IA_deg       double  inflow (upflow) angle [deg]
+%                 Active       int     1 = include in campaign, 0 = skip
+% =========================================================================
+
+% ---- Project identity ---------------------------------------------------
+% project_name: sub-folder created inside study_path.
+% study_path is passed as the 3rd argument:  prep(fst, dlc, study_path)
+project_name     = 01_Study
+
+% ---- TurbSim grid / timing ----------------------------------------------
+% Hub height must match the OpenFAST model
+ref_height_m        = 150.0
+grid_ny             = 31
+grid_nz             = 31
+grid_height_m       = 300.0
+grid_width_m        = 300.0
+time_step_s         = 0.05
+
+% IEC spectral and turbulence parameters
+spectrum_model      = IECKAI
+IEC_standard        = 1-ED3
+turbulence_class    = B
+
+% ---- OpenFAST simulation settings ---------------------------------------
+t_max_s             = 660.0
+dt_s                = 0.025
+t_transient_s       = 60.0
+write_binary_output = 0
+
+% ---- DLC table ----------------------------------------------------------
+% DLC_ID   TurbModel   WSP_min  WSP_max  WSP_step  N_seeds  Shear  Yaw_deg  IA_deg  Active
+%
+% DLC 1.1  NTM -- power production, rated range, no yaw error
+DLC1.1    NTM    4    20    2    6    0.20    0.0    0.0    1
+
+% DLC 1.2  NTM -- fatigue loads, same wind conditions
+DLC1.2    NTM    4    20    2    6    0.20    0.0    0.0    1
+
+% DLC 1.3  ETM -- extreme turbulence, narrow speed range
+DLC1.3    ETM    4    20    2    6    0.20    0.0    0.0    1
+
+% DLC 1.4  NTM -- extreme coherent gust + yaw; three yaw offsets
+%          Each row is one (DLC, TurbModel, WSP range, yaw) combination
+DLC1.4    NTM   10    16    2    6    0.20   -8.0    0.0    1
+DLC1.4    NTM   10    16    2    6    0.20    0.0    0.0    1
+DLC1.4    NTM   10    16    2    6    0.20    8.0    0.0    1
+
+% DLC 6.1  EWM50 -- extreme wind, parked, wide speed range (inactive example)
+DLC6.1   EWM50  40    60    5    2    0.11    0.0    0.0    0

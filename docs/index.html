@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastForge Dashboard · turbinesim/fastforge</title>
+  <style>
+    :root {
+      --bg:      #f1f5f9;
+      --card:    #ffffff;
+      --border:  #e2e8f0;
+      --text:    #1e293b;
+      --muted:   #64748b;
+      --accent:  #3b82f6;
+      --success: #22c55e;
+      --error:   #ef4444;
+      --warn:    #f59e0b;
+      --grey:    #94a3b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #0f172a; color: #e2e8f0;
+      padding: 0 24px; height: 52px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    header h1 { font-size: 15px; font-weight: 600; flex: 1; }
+    header h1 span { color: #94a3b8; font-weight: 400; }
+    .auth-row { display: flex; align-items: center; gap: 8px; }
+    .auth-row input {
+      padding: 5px 10px; border: 1px solid #334155; border-radius: 6px;
+      background: #1e293b; color: #e2e8f0; font-size: 12px; width: 240px;
+    }
+    .auth-row input::placeholder { color: #64748b; }
+
+    /* ── Layout ── */
+    main { max-width: 980px; margin: 24px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 18px; }
+
+    /* ── Card ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .card-title  { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .card-meta   { font-size: 11px; color: var(--muted); }
+
+    /* ── Buttons ── */
+    button {
+      padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border);
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      transition: opacity .15s, box-shadow .15s;
+    }
+    button:hover:not(:disabled) { opacity: .85; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary   { background: var(--accent); color: #fff; border-color: transparent; }
+    .btn-secondary { background: var(--card); color: var(--text); }
+    .btn-ghost     { background: transparent; border-color: transparent; color: var(--muted); font-size: 12px; padding: 4px 8px; }
+    .btn-sm        { padding: 4px 10px; font-size: 12px; }
+    .btn-icon      { padding: 5px 8px; font-size: 13px; line-height: 1; background: transparent; border-color: var(--border); color: var(--muted); }
+
+    /* ── Auth badge ── */
+    .badge-auth { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+    .auth-ok    { background: #166534; color: #bbf7d0; }
+    .auth-warn  { background: #78350f; color: #fef3c7; }
+    .auth-fail  { background: #7f1d1d; color: #fecaca; }
+    .auth-none  { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+
+    /* ── Form ── */
+    .form-section { margin-top: 16px; }
+    .form-section:first-child { margin-top: 0; }
+    .form-section-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em;
+      color: var(--muted); padding-bottom: 6px; margin-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px 20px; }
+    .field label {
+      display: block; font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+    }
+    .field input, .field select {
+      width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 13px; color: var(--text); background: var(--card);
+    }
+    .field input:focus, .field select:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+    }
+    .field select {
+      appearance: none; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+    }
+    .field select:disabled { opacity: .5; cursor: default; }
+    .field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+    .field-row  { display: flex; gap: 6px; }
+    .field-row select, .field-row input { flex: 1; min-width: 0; width: auto; }
+
+    .smoke-note { font-size: 11px; color: var(--muted); }
+    .btn-row { display: flex; align-items: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    #dispatch-msg { font-size: 12px; color: var(--muted); }
+
+    /* ── Live dot ── */
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--grey); flex-shrink: 0; transition: background .3s;
+    }
+    .live-dot.on { background: var(--success); animation: live-pulse 1.4s ease-in-out infinite; }
+    @keyframes live-pulse { 0%,100% { opacity: 1; } 50% { opacity: .2; } }
+
+    /* ── Pipeline ── */
+    .pipeline { display: flex; align-items: stretch; margin: 4px 0 16px; }
+    .pipe-col  { flex: 1; }
+    .pipe-box  {
+      border-radius: 8px; padding: 14px 16px; height: 100%;
+      border: 2px solid var(--border); background: #f8fafc;
+      transition: border-color .3s, background .3s;
+    }
+    .pipe-box.pending     { border-color: #cbd5e1; background: #f8fafc; }
+    .pipe-box.queued      { border-color: #94a3b8; background: #f8fafc; }
+    .pipe-box.in_progress { border-color: var(--accent); background: #eff6ff; animation: glow 2s ease-in-out infinite; }
+    .pipe-box.success     { border-color: var(--success); background: #f0fdf4; }
+    .pipe-box.failure     { border-color: var(--error);   background: #fef2f2; }
+    .pipe-box.cancelled   { border-color: var(--warn);    background: #fffbeb; }
+    .pipe-box.skipped     { border-color: #cbd5e1; background: #f8fafc; opacity: .5; }
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(59,130,246,.25); }
+      50%      { box-shadow: 0 0 0 6px rgba(59,130,246,.06); }
+    }
+    .pipe-arrow    { display: flex; align-items: center; padding: 0 10px; color: #cbd5e1; font-size: 22px; flex-shrink: 0; }
+    .pipe-job-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    .pipe-detail   { font-size: 12px; color: var(--muted); min-height: 18px; }
+    .pipe-icon     { float: right; font-size: 16px; margin-top: -2px; }
+
+    /* ── Run meta bar ── */
+    .run-meta-bar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 14px; font-size: 12px; color: var(--muted);
+    }
+    .run-meta-bar a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    #run-elapsed { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    /* ── Status badges ── */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+    .badge-success   { background: #dcfce7; color: #15803d; }
+    .badge-failure   { background: #fee2e2; color: #b91c1c; }
+    .badge-progress  { background: #dbeafe; color: #1d4ed8; }
+    .badge-cancelled { background: #fef9c3; color: #92400e; }
+    .badge-pending   { background: #f1f5f9; color: #475569; }
+
+    /* ── Artifacts ── */
+    .artifact-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .artifact-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-radius: 6px;
+      background: #f8fafc; border: 1px solid var(--border);
+    }
+    .artifact-name { font-size: 13px; font-weight: 500; }
+    .artifact-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .artifact-item a { font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+
+    /* ── Recent runs ── */
+    .runs-table { width: 100%; border-collapse: collapse; }
+    .runs-table th {
+      text-align: left; font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em;
+      padding: 8px 12px; border-bottom: 2px solid var(--border);
+    }
+    .runs-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+    .runs-table tr:last-child td { border-bottom: none; }
+    .runs-table tbody tr:hover td { background: #f8fafc; }
+    .run-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .run-link:hover { text-decoration: underline; }
+
+    .empty         { text-align: center; padding: 36px 0; color: var(--muted); font-size: 13px; }
+    .section-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .divider       { height: 1px; background: var(--border); margin: 14px 0; }
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #dbeafe; border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px; vertical-align: -1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- ══════════ HEADER ══════════ -->
+<header>
+  <h1>🌪️ FastForge Dashboard <span>· turbinesim / fastforge</span></h1>
+  <div class="auth-row">
+    <input type="password" id="pat-input"
+           placeholder="GitHub token (workflow + repo scope)"
+           autocomplete="off" onkeydown="if(event.key==='Enter')savePAT()">
+    <button class="btn-sm btn-primary" onclick="savePAT()">Connect</button>
+    <span id="auth-badge" class="badge-auth auth-none">Not connected</span>
+  </div>
+</header>
+
+<!-- ══════════ MAIN ══════════ -->
+<main>
+
+  <!-- ── Launch card ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Launch Campaign</span>
+      <span class="smoke-note">Smoke test ignores all inputs and uses workflow defaults</span>
+    </div>
+
+    <!-- Simulation inputs -->
+    <div class="form-section">
+      <div class="form-section-label">Simulation</div>
+      <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>DLC file</label>
+          <input id="f-dlc" value="dlc_11_details.txt">
+          <div class="field-hint">Config file path relative to repo root</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model -->
+    <div class="form-section">
+      <div class="form-section-label">Model</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Repo</label>
+          <input id="f-mrepo" value="NatLabRockies/ROSCO" onchange="loadModelTags()">
+          <div class="field-hint">Public repo hosting the NREL-5MW turbine model &amp; TurbSim template</div>
+        </div>
+        <div class="field">
+          <label>Tag</label>
+          <div class="field-row">
+            <select id="f-rosco"><option value="v2.10.5" selected>v2.10.5</option></select>
+            <button class="btn-icon" title="Reload tags from model repo" onclick="loadModelTags()">↻</button>
+          </div>
+          <div class="field-hint">Release tag for the NREL-5MW model files &amp; TurbSim template</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controller -->
+    <div class="form-section">
+      <div class="form-section-label">Controller</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Repo</label>
+          <input id="f-crepo" value="NatLabRockies/ROSCO" onchange="loadControllerTags()">
+          <div class="field-hint">Public repo hosting release assets (DLL, IN file, Cp data)</div>
+        </div>
+        <div class="field">
+          <label>Tag</label>
+          <div class="field-row">
+            <select id="f-ctag"><option value="v2.9.0" selected>v2.9.0</option></select>
+            <button class="btn-icon" title="Reload tags from controller repo" onclick="loadControllerTags()">↻</button>
+          </div>
+          <div class="field-hint">Release tag to download the controller DLL + IN file</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tool versions -->
+    <div class="form-section">
+      <div class="form-section-label">Tool versions</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>fastprep version</label>
+          <input id="f-fp" value="latest" placeholder="latest">
+          <div class="field-hint">Case generator binary — tag or <em>latest</em> (private repo)</div>
+        </div>
+        <div class="field">
+          <label>OpenFAST version</label>
+          <select id="f-of"><option value="v4.2.0" selected>v4.2.0</option></select>
+          <div class="field-hint">Aero-elastic simulation engine (OpenFAST/openfast)</div>
+        </div>
+        <div class="field">
+          <label>postfast version</label>
+          <input id="f-pf" value="latest" placeholder="latest">
+          <div class="field-hint">Post-processor binary — tag or <em>latest</em> (private repo)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btn-smoke" onclick="dispatch('dlc11-smoke.yml', true)" disabled>
+        ▶ Smoke Test
+      </button>
+      <button class="btn-primary" id="btn-sweep" onclick="dispatch('dlc11-sweep.yml', false)" disabled>
+        ⚡ Full Sweep
+      </button>
+      <span id="dispatch-msg"></span>
+    </div>
+  </div>
+
+  <!-- ── Active run card ── -->
+  <div class="card" id="active-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">
+        <span class="live-dot" id="live-dot"></span>
+        Active Run
+      </span>
+      <div style="display:flex;align-items:center;gap:14px">
+        <span class="card-meta" id="last-updated-text"></span>
+        <button class="btn-ghost" onclick="manualRefresh()">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div class="run-meta-bar" id="run-meta"></div>
+
+    <div class="pipeline">
+      <div class="pipe-col">
+        <div class="pipe-box pending" id="pbox-prepare">
+          <span class="pipe-icon" id="picon-prepare">○</span>
+          <div class="pipe-job-name">prepare</div>
+          <div class="pipe-detail" id="pdet-prepare">Waiting…</div>
+        </div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-col">
+        <div class="pipe-box pending" id="pbox-simulate">
+          <span class="pipe-icon" id="picon-simulate">○</span>
+          <div class="pipe-job-name">simulate</div>
+          <div class="pipe-detail" id="pdet-simulate">Waiting…</div>
+        </div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-col">
+        <div class="pipe-box pending" id="pbox-post">
+          <span class="pipe-icon" id="picon-post">○</span>
+          <div class="pipe-job-name">post_process</div>
+          <div class="pipe-detail" id="pdet-post">Waiting…</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="artifacts-section" style="display:none">
+      <div class="divider"></div>
+      <div class="section-label">Artifacts</div>
+      <div class="artifact-grid" id="artifacts-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Recent runs card ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Runs</span>
+      <button class="btn-ghost" onclick="loadRuns()">↻ Refresh</button>
+    </div>
+    <div id="runs-body">
+      <div class="empty"><span class="spinner"></span>Loading runs…</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// Config
+// ════════════════════════════════════════════════════════════════════════════
+const OWNER = 'turbinesim';
+const REPO  = 'fastforge';
+const BASE  = `https://api.github.com/repos/${OWNER}/${REPO}`;
+
+// Adaptive poll intervals (ms)
+const POLL_ACTIVE = 5000;   // a job is actively in_progress
+const POLL_QUEUED = 12000;  // run exists but nothing running yet
+const POLL_SLOW   = 20000;  // fallback / error retry
+
+// ════════════════════════════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════════════════════════════
+let pat         = localStorage.getItem('gh_pat') || '';
+let pollTimeout = null;
+let clockTimer  = null;   // 1 s tick: elapsed counter + "last updated" text
+let lastPollAt  = null;
+let activeRunId = null;
+let startedAt   = null;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Init
+// ════════════════════════════════════════════════════════════════════════════
+(async function init() {
+  if (pat) document.getElementById('pat-input').value = pat;
+
+  // Populate public-repo selects immediately — no auth needed
+  populateSelect('f-of', 'OpenFAST', 'openfast', 'v4.2.0');
+  loadModelTags();
+  loadControllerTags();
+
+  // Runs and active-run monitoring are gated behind auth
+  if (pat) {
+    await verifyPAT();
+  } else {
+    document.getElementById('runs-body').innerHTML =
+      '<div class="empty">Connect a token to view runs.</div>';
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
+// GitHub API helpers
+// ════════════════════════════════════════════════════════════════════════════
+// Calls this repo only (prepends BASE)
+async function gh(path, opts = {}) {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(opts.headers || {}),
+  };
+  if (pat) headers.Authorization = `Bearer ${pat}`;
+  const res = await fetch(BASE + path, { ...opts, headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `HTTP ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+// Calls any GitHub API URL (used for cross-repo release lookups)
+async function ghUrl(url) {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (pat) headers.Authorization = `Bearer ${pat}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Release-tag dropdowns
+// ════════════════════════════════════════════════════════════════════════════
+async function populateSelect(fieldId, owner, repo, defaultVal) {
+  const sel = document.getElementById(fieldId);
+  if (!sel || sel.tagName !== 'SELECT') return;
+
+  sel.disabled = true;
+  sel.innerHTML = `<option value="" disabled selected>Loading…</option>`;
+
+  try {
+    const releases = await ghUrl(
+      `https://api.github.com/repos/${owner}/${repo}/releases?per_page=20`
+    );
+    const tags = releases.map(r => r.tag_name).filter(Boolean);
+    if (tags.length === 0) throw new Error('no releases');
+
+    sel.innerHTML = '';
+    if (!tags.includes(defaultVal)) tags.unshift(defaultVal);
+    tags.forEach(tag => {
+      const opt = new Option(tag, tag);
+      if (tag === defaultVal) opt.selected = true;
+      sel.add(opt);
+    });
+  } catch (e) {
+    // Fall back to showing just the default
+    sel.innerHTML = '';
+    sel.add(new Option(defaultVal, defaultVal, true, true));
+  }
+  sel.disabled = false;
+}
+
+async function loadModelTags() {
+  const raw   = document.getElementById('f-mrepo').value.trim();
+  const parts = raw.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return;
+  await populateSelect('f-rosco', parts[0], parts[1], 'v2.10.5');
+}
+
+// Populates a select with releases that contain at least one 64-bit binary
+// asset (.dll / .so / .dylib). Releases with only 32-bit / x86 assets are
+// excluded. Falls back to all releases if none pass the filter.
+// defaultVal: tag to pre-select; falls back to first in list if not found.
+async function populateControllerSelect(fieldId, owner, repo, defaultVal) {
+  const sel = document.getElementById(fieldId);
+  if (!sel || sel.tagName !== 'SELECT') return;
+
+  sel.disabled = true;
+  sel.innerHTML = `<option value="" disabled selected>Loading…</option>`;
+
+  try {
+    const releases = await ghUrl(
+      `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`
+    );
+    const BINARY_RE = /\.(dll|so|dylib)$/i;
+    const SKIP_RE   = /32.?bit|[\-_.]x86[\-_.]|win32/i;
+    const filtered  = releases.filter(r =>
+      r.assets && r.assets.some(a => BINARY_RE.test(a.name) && !SKIP_RE.test(a.name))
+    );
+
+    const pool = filtered.length > 0 ? filtered : releases;
+    if (pool.length === 0) throw new Error('no releases');
+
+    sel.innerHTML = '';
+    pool.forEach(r => sel.add(new Option(r.tag_name, r.tag_name)));
+
+    // Pre-select defaultVal if present, otherwise keep first (latest with binaries)
+    const match = Array.from(sel.options).find(o => o.value === defaultVal);
+    if (match) match.selected = true;
+    else if (sel.options.length > 0) sel.options[0].selected = true;
+  } catch (e) {
+    sel.innerHTML = '';
+    const fallback = defaultVal || 'v2.9.0';
+    sel.add(new Option(fallback, fallback, true, true));
+  }
+  sel.disabled = false;
+}
+
+async function loadControllerTags() {
+  const raw   = document.getElementById('f-crepo').value.trim();
+  const parts = raw.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return;
+  await populateControllerSelect('f-ctag', parts[0], parts[1], 'v2.9.0');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Auth
+// ════════════════════════════════════════════════════════════════════════════
+async function savePAT() {
+  pat = document.getElementById('pat-input').value.trim();
+  localStorage.setItem('gh_pat', pat);
+  await verifyPAT();
+}
+
+async function verifyPAT() {
+  const badge = document.getElementById('auth-badge');
+  badge.textContent = 'Step 1/3 — checking token…';
+  badge.className   = 'badge-auth auth-none';
+  setDispatchBtns(true);
+
+  // ── Step 1: basic auth against this (public) repo ──────────────────────
+  try {
+    await gh('/actions/workflows');
+  } catch(e) {
+    badge.textContent = '✗ Invalid token';
+    badge.className   = 'badge-auth auth-fail';
+    return;
+  }
+
+  // ── Step 2: read FASTPREP_REPO variable to get the private repo name ───
+  // Requires 'repo' scope or a fine-grained PAT with Actions Variables: Read.
+  badge.textContent = 'Step 2/3 — reading repo config…';
+  let fastprepRepo;
+  try {
+    const v = await gh('/actions/variables/FASTPREP_REPO');
+    fastprepRepo = v.value;
+    if (!fastprepRepo) throw new Error('empty value');
+  } catch(e) {
+    badge.textContent = '⚠ Needs repo scope to verify private access';
+    badge.className   = 'badge-auth auth-warn';
+    // Token is valid for dispatch but we cannot confirm private repo access.
+    // Keep buttons disabled — user should re-connect with a broader token.
+    return;
+  }
+
+  // ── Step 3: verify the PAT can actually read the private fastprep repo ──
+  badge.textContent = 'Step 3/3 — verifying private repo…';
+  try {
+    await ghUrl(`https://api.github.com/repos/${fastprepRepo}/releases/latest`);
+    badge.textContent = '✓ Connected';
+    badge.className   = 'badge-auth auth-ok';
+    document.getElementById('btn-smoke').disabled = false;
+    document.getElementById('btn-sweep').disabled = false;
+    // Only now load run history and resume any active monitoring
+    await loadRuns();
+    await loadLatestActive();
+  } catch(e) {
+    const hint = e.message.includes('404')
+      ? `✗ Token has no access to private repo`
+      : `✗ Private repo check failed (${e.message})`;
+    badge.textContent = hint;
+    badge.className   = 'badge-auth auth-fail';
+    document.getElementById('runs-body').innerHTML =
+      '<div class="empty">Token verified but private repo access denied.</div>';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Dispatch
+// ════════════════════════════════════════════════════════════════════════════
+async function dispatch(file, isSmoke) {
+  setDispatchMsg('<span class="spinner"></span>Dispatching…', false);
+  setDispatchBtns(true);
+
+  const inputs = isSmoke ? { dlc_file: 'dlc_smoke.txt' } : {
+    dlc_file:         val('f-dlc'),
+    model_repo:       val('f-mrepo'),
+    model_tag:        val('f-rosco'),
+    controller_repo:  val('f-crepo'),
+    controller_tag:   val('f-ctag'),
+    fastprep_version: val('f-fp'),
+    postfast_version: val('f-pf'),
+    openfast_version: val('f-of'),
+  };
+
+  const before = new Date();
+  try {
+    await gh(`/actions/workflows/${file}/dispatches`, {
+      method:  'POST',
+      body:    JSON.stringify({ ref: 'main', inputs }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    setDispatchMsg('<span class="spinner"></span>Finding run…', false);
+    pollForNewRun(before);
+  } catch(e) {
+    setDispatchMsg(`✗ ${e.message}`, true);
+    setDispatchBtns(false);
+  }
+}
+
+async function pollForNewRun(before) {
+  let attempts = 0;
+  const t = setInterval(async () => {
+    attempts++;
+    try {
+      const data = await gh(`/actions/runs?event=workflow_dispatch&per_page=5`);
+      const run  = data.workflow_runs.find(r => new Date(r.created_at) >= before);
+      if (run || attempts > 15) {
+        clearInterval(t);
+        setDispatchBtns(false);
+        setDispatchMsg('', false);
+        if (run) {
+          await loadRuns();
+          startMonitoring(run.id, run.created_at);
+        } else {
+          setDispatchMsg('Dispatched — refresh shortly.', false);
+        }
+      }
+    } catch(e) {}
+  }, 3000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Run monitoring
+// ════════════════════════════════════════════════════════════════════════════
+function startMonitoring(runId, runStart) {
+  stopPoll();
+  stopClock();
+  activeRunId = runId;
+  startedAt   = runStart ? new Date(runStart) : null;
+  document.getElementById('active-card').style.display = '';
+  setLiveDot(true);
+  startClock();
+  updateRun();
+}
+
+function stopPoll()  { if (pollTimeout) { clearTimeout(pollTimeout);  pollTimeout = null; } }
+function stopClock() { if (clockTimer)  { clearInterval(clockTimer);  clockTimer  = null; } }
+
+function startClock() {
+  stopClock();
+  clockTimer = setInterval(() => {
+    // Tick elapsed counter
+    if (startedAt) {
+      const el = document.getElementById('run-elapsed');
+      if (el) el.textContent = `⏱ ${elapsedStr(startedAt)}`;
+    }
+    // Update "last updated" label
+    if (lastPollAt) {
+      const s  = Math.round((Date.now() - lastPollAt) / 1000);
+      const lu = document.getElementById('last-updated-text');
+      if (lu) lu.textContent = s < 5 ? 'Updated just now' : `Updated ${s}s ago`;
+    }
+  }, 1000);
+}
+
+function setLiveDot(on) {
+  const dot = document.getElementById('live-dot');
+  if (dot) dot.className = `live-dot${on ? ' on' : ''}`;
+}
+
+function scheduleNextPoll(delay) {
+  stopPoll();
+  pollTimeout = setTimeout(updateRun, delay);
+}
+
+async function manualRefresh() { stopPoll(); await updateRun(); }
+
+async function updateRun() {
+  if (!activeRunId) return;
+  try {
+    const [run, jobsData] = await Promise.all([
+      gh(`/actions/runs/${activeRunId}`),
+      gh(`/actions/runs/${activeRunId}/jobs?per_page=100`),
+    ]);
+
+    lastPollAt = Date.now();
+    const lu = document.getElementById('last-updated-text');
+    if (lu) lu.textContent = 'Updated just now';
+
+    const jobs = jobsData.jobs;
+
+    // ── Meta bar ──
+    document.getElementById('run-meta').innerHTML =
+      `<a class="run-link" href="${run.html_url}" target="_blank">Run #${run.run_number}</a>
+       <span>·</span><strong>${escHtml(run.name)}</strong>
+       <span>·</span>${statusBadge(run.status, run.conclusion)}
+       <span>·</span><span>${timeSince(new Date(run.created_at))}</span>
+       ${startedAt ? `<span id="run-elapsed" style="margin-left:auto;font-variant-numeric:tabular-nums">⏱ ${elapsedStr(startedAt)}</span>` : ''}`;
+
+    // ── prepare ──
+    applyJob('prepare', jobs.find(j => j.name === 'prepare'));
+
+    // ── simulate (matrix) ──
+    const sims     = jobs.filter(j => j.name.startsWith('simulate'));
+    const simDone  = sims.filter(j => j.status === 'completed').length;
+    const simFail  = sims.filter(j => j.conclusion && j.conclusion !== 'success').length;
+    const simTotal = sims.length;
+    let simStatus, simConc;
+    if      (simTotal === 0)                                                       { simStatus = 'pending';     simConc = null; }
+    else if (sims.every(j => j.status === 'completed'))                            { simStatus = 'completed';   simConc = simFail > 0 ? 'failure' : 'success'; }
+    else if (sims.some(j => j.status === 'in_progress' || j.status === 'queued')) { simStatus = 'in_progress'; simConc = null; }
+    else                                                                           { simStatus = 'pending';     simConc = null; }
+    const simDetail = simTotal === 0
+      ? 'Waiting for prepare…'
+      : `${simDone} / ${simTotal} cases${simFail > 0 ? ` · ${simFail} failed` : ''}`;
+    applyJob('simulate', { status: simStatus, conclusion: simConc }, simDetail);
+
+    // ── post_process ──
+    applyJob('post', jobs.find(j => j.name === 'post_process'));
+
+    // ── Schedule next poll or stop ──
+    if (run.status === 'completed') {
+      stopPoll();
+      stopClock();
+      setLiveDot(false);
+      if (lu) lu.textContent = '';
+      await loadArtifacts(activeRunId, run.html_url);
+      await loadRuns();
+    } else {
+      const hasActive = jobs.some(j => j.status === 'in_progress');
+      const hasQueued = jobs.some(j => j.status === 'queued') || run.status === 'queued';
+      scheduleNextPoll(hasActive ? POLL_ACTIVE : hasQueued ? POLL_QUEUED : POLL_SLOW);
+    }
+
+  } catch(e) {
+    console.warn('updateRun error:', e);
+    scheduleNextPoll(POLL_SLOW);
+  }
+}
+
+function applyJob(id, jobOrNull, overrideDetail) {
+  const box  = document.getElementById(`pbox-${id}`);
+  const det  = document.getElementById(`pdet-${id}`);
+  const icon = document.getElementById(`picon-${id}`);
+  if (!box) return;
+
+  if (!jobOrNull) {
+    box.className    = 'pipe-box pending';
+    det.textContent  = overrideDetail || 'Waiting…';
+    icon.textContent = '○';
+    return;
+  }
+
+  const { status, conclusion } = jobOrNull;
+  const cls =
+    conclusion === 'success'    ? 'success'     :
+    conclusion === 'failure'    ? 'failure'     :
+    conclusion === 'cancelled'  ? 'cancelled'   :
+    conclusion === 'skipped'    ? 'skipped'     :
+    status     === 'in_progress'? 'in_progress' :
+    status     === 'queued'     ? 'queued'      : 'pending';
+
+  box.className    = `pipe-box ${cls}`;
+  icon.textContent =
+    conclusion === 'success'    ? '✓' :
+    conclusion === 'failure'    ? '✗' :
+    conclusion === 'cancelled'  ? '⊘' :
+    status     === 'in_progress'? '●' : '○';
+
+  det.innerHTML = overrideDetail ? overrideDetail :
+    conclusion === 'success'    ? `Done in ${jobDuration(jobOrNull)}` :
+    conclusion === 'failure'    ? 'Failed' :
+    conclusion === 'cancelled'  ? 'Cancelled' :
+    conclusion === 'skipped'    ? 'Skipped' :
+    status     === 'in_progress'? `<span class="spinner"></span>Running…` :
+    status     === 'queued'     ? 'Queued' : 'Waiting…';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Artifacts
+// ════════════════════════════════════════════════════════════════════════════
+async function loadArtifacts(runId, runUrl) {
+  try {
+    const data = await gh(`/actions/runs/${runId}/artifacts`);
+    const sec  = document.getElementById('artifacts-section');
+    const list = document.getElementById('artifacts-list');
+    if (!data.artifacts.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    list.innerHTML = data.artifacts.map(a => `
+      <div class="artifact-item">
+        <div>
+          <div class="artifact-name">📦 ${escHtml(a.name)}</div>
+          <div class="artifact-meta">${fmtBytes(a.size_in_bytes)} · expires ${a.expires_at.slice(0,10)}</div>
+        </div>
+        <a href="${runUrl}#artifacts" target="_blank">View on GitHub ↗</a>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Recent runs table
+// ════════════════════════════════════════════════════════════════════════════
+async function loadRuns() {
+  const body = document.getElementById('runs-body');
+  try {
+    const data = await gh(`/actions/runs?per_page=15`);
+    const runs = data.workflow_runs;
+    if (!runs.length) { body.innerHTML = '<div class="empty">No workflow runs found.</div>'; return; }
+    body.innerHTML = `
+      <table class="runs-table">
+        <thead><tr><th>Run</th><th>Workflow</th><th>Status</th><th>Trigger</th><th>Started</th><th></th></tr></thead>
+        <tbody>
+          ${runs.map(r => `
+            <tr>
+              <td><a class="run-link" href="${r.html_url}" target="_blank">#${r.run_number}</a></td>
+              <td>${escHtml(r.name)}</td>
+              <td>${statusBadge(r.status, r.conclusion)}</td>
+              <td style="color:var(--muted)">${r.event}</td>
+              <td style="color:var(--muted)">${timeSince(new Date(r.created_at))}</td>
+              <td><button class="btn-secondary btn-sm" onclick="startMonitoring(${r.id},'${r.created_at}')">View</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    body.innerHTML = `<div class="empty">Could not load runs: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadLatestActive() {
+  try {
+    const data = await gh(`/actions/runs?per_page=5`);
+    const run  = data.workflow_runs.find(r => r.status !== 'completed');
+    if (run) startMonitoring(run.id, run.created_at);
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Helpers
+// ════════════════════════════════════════════════════════════════════════════
+function statusBadge(status, conclusion) {
+  if (conclusion === 'success')    return '<span class="badge badge-success">success</span>';
+  if (conclusion === 'failure')    return '<span class="badge badge-failure">failure</span>';
+  if (conclusion === 'cancelled')  return '<span class="badge badge-cancelled">cancelled</span>';
+  if (status     === 'in_progress')return '<span class="badge badge-progress">running</span>';
+  return '<span class="badge badge-pending">queued</span>';
+}
+function timeSince(d) {
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s <    60) return `${s}s ago`;
+  if (s <  3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+function elapsedStr(start) {
+  const s = Math.floor((Date.now() - new Date(start)) / 1000);
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+}
+function jobDuration(job) {
+  if (!job.started_at || !job.completed_at) return '';
+  const s = Math.floor((new Date(job.completed_at) - new Date(job.started_at)) / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s/60)}m ${s % 60}s`;
+}
+function fmtBytes(b) {
+  if (b < 1024)      return `${b} B`;
+  if (b < 1_048_576) return `${(b/1024).toFixed(1)} KB`;
+  return `${(b/1_048_576).toFixed(1)} MB`;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function val(id)              { return document.getElementById(id).value.trim(); }
+function setDispatchMsg(h, e) { const el = document.getElementById('dispatch-msg'); el.innerHTML = h; el.style.color = e ? 'var(--error)' : 'var(--muted)'; }
+function setDispatchBtns(d)   { ['btn-smoke','btn-sweep'].forEach(id => document.getElementById(id).disabled = d); }
+</script>
+</body>
+</html>

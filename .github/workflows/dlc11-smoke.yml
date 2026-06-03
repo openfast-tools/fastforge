@@ -12,6 +12,10 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      wind_speed:
+        description: 'Wind speed (m/s) to patch into dlc_smoke.txt (leave blank for default 12 m/s)'
+        type: string
+        default: ''
       controller_repo:
         description: 'Public repository containing the controller release (owner/repo)'
         type: string
@@ -30,6 +34,7 @@ jobs:
     uses: ./.github/workflows/dlc11-sweep.yml
     secrets: inherit
     with:
-      dlc_file: 'dlc_smoke.txt'
+      dlc_file:        'dlc_smoke.txt'
       controller_repo: ${{ inputs.controller_repo || 'NatLabRockies/ROSCO' }}
       controller_tag:  ${{ inputs.controller_tag  || 'v2.9.0' }}
+      wind_speed:      ${{ inputs.wind_speed }}

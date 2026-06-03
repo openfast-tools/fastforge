@@ -32,6 +32,10 @@ on:
         description: 'Release tag to download the controller from'
         type: string
         default: 'v2.9.0'
+      wind_speed:
+        description: 'Override wind speed (m/s) in the DLC file — patches WSP_min and WSP_max to this single value. Leave blank to use the value already in the file.'
+        type: string
+        default: ''
 
       fastprep_version:
         description: 'fastprep release tag, or "latest"'
@@ -68,6 +72,10 @@ on:
         description: 'Release tag to download the controller from'
         type: string
         default: 'v2.9.0'
+      wind_speed:
+        description: 'Override wind speed (m/s) in the DLC file — patches WSP_min and WSP_max to this single value. Leave blank to use the value already in the file.'
+        type: string
+        default: ''
 
       fastprep_version:
         description: 'fastprep release tag, or "latest"'
@@ -250,6 +258,29 @@ jobs:
           }
           Set-Content $servoDynPath $content -Encoding utf8NoBOM
           Write-Host "ServoDyn.dat patched."
+
+      # ------------------------------------------------------------------
+      # Optionally patch WSP_min and WSP_max in the DLC file.
+      # Only runs when wind_speed input is non-empty.
+      # ------------------------------------------------------------------
+      - name: Patch wind speed in DLC file
+        if: ${{ inputs.wind_speed != '' }}
+        shell: pwsh
+        run: |
+          $wsp     = '${{ inputs.wind_speed }}'
+          $dlcFile = '${{ inputs.dlc_file }}'
+          Write-Host "Patching wind speed -> $wsp m/s in $dlcFile"
+          $content = Get-Content $dlcFile
+          $content = $content | ForEach-Object {
+            # Match active DLC table rows (not comment lines) and replace
+            # the WSP_min (column 3) and WSP_max (column 4) fields.
+            # Line format: DLC_ID  TurbModel  WSP_min  WSP_max  WSP_step ...
+            if ($_ -match '^\s*DLC') {
+              $_ -replace '^(\s*\S+\s+\S+\s+)\S+(\s+)\S+', "`${1}$wsp`${2}$wsp"
+            } else { $_ }
+          }
+          Set-Content $dlcFile $content -Encoding utf8NoBOM
+          Write-Host "Patched $dlcFile — WSP_min = WSP_max = $wsp"
 
       # ------------------------------------------------------------------
       # Run fastprep: generates Model/, Wind/*.inp, FST/**/*.fst

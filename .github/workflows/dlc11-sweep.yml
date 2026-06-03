@@ -185,7 +185,7 @@ jobs:
       - name: Fetch controller from ROSCO release
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ORG_TOKEN || github.token }}
         run: |
           $destDir = "work\${{ steps.parse_dlc.outputs.project_name }}\controllers"
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null

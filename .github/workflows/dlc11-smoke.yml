@@ -2,9 +2,8 @@ name: DLC 1.1 smoke
 
 # Cheap end-to-end pipeline check triggered on every push and pull-request
 # to main. Delegates to the reusable dlc11-sweep.yml workflow with
-# dlc_smoke.txt, which is fetched automatically from the repo configured in
-# the FASTPREP_REPO repository variable. All other inputs use workflow defaults
-# (ROSCO v2.10.5, controller from turbinesim/ROSCO latest, OpenFAST v4.2.0).
+# dlc_smoke.txt. controller_repo and controller_tag are user inputs when
+# triggered manually; push/PR runs use the sweep workflow defaults.
 
 on:
   push:
@@ -12,6 +11,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      controller_repo:
+        description: 'Public repository containing the controller release (owner/repo)'
+        type: string
+        default: 'NatLabRockies/ROSCO'
+      controller_tag:
+        description: 'Release tag to download the controller from'
+        type: string
+        default: 'v2.9.0'
 
 concurrency:
   group: dlc11-smoke-${{ github.ref }}
@@ -23,3 +31,5 @@ jobs:
     secrets: inherit
     with:
       dlc_file: 'dlc_smoke.txt'
+      controller_repo: ${{ inputs.controller_repo || 'NatLabRockies/ROSCO' }}
+      controller_tag:  ${{ inputs.controller_tag  || 'v2.9.0' }}

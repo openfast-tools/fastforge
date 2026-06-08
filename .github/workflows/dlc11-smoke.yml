@@ -17,7 +17,7 @@ on:
         type: string
         default: ''
       controller_repo:
-        description: 'Public repository containing the controller release (owner/repo)'
+        description: 'Repository containing the controller release (owner/repo)'
         type: string
         default: 'NatLabRockies/ROSCO'
       controller_tag:

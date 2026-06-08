@@ -105,8 +105,14 @@ DLC1.1    NTM        4        20       2         3        0.14   0.0      0.0   
 ## ServoDyn controller path patching
 
 The ROSCO `NRELOffshrBsline5MW_Onshore_ServoDyn.dat` references ROSCO's default
-controller. The `prepare` job replaces the `DLL_FileName` and `DLL_InFile` lines
-with absolute paths to the fetched controller before fastprep runs.
+controller. The `prepare` job replaces three parameters with the correct values
+for the fetched controller before fastprep runs:
+
+| Parameter | Value |
+|---|---|
+| `DLL_FileName` | Absolute path to the `.dll` from the controller release |
+| `DLL_InFile` | Absolute path to the `.IN` file (controller release, falling back to model repo) |
+| `DLL_ProcName` | `DISCON` if the DLL name contains `discon` or `rosco` (case-insensitive); otherwise the DLL filename stem |
 
 
 ## Calling this from another repo

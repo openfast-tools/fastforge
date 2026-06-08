@@ -25,7 +25,7 @@ on:
         type: string
         default: 'v2.10.5'
       controller_repo:
-        description: 'Public repository containing the controller release (owner/repo)'
+        description: 'Repository containing the controller release (owner/repo)'
         type: string
         default: 'NatLabRockies/ROSCO'
       controller_tag:
@@ -65,7 +65,7 @@ on:
         type: string
         default: 'v2.10.5'
       controller_repo:
-        description: 'Public repository containing the controller release (owner/repo)'
+        description: 'Repository containing the controller release (owner/repo)'
         type: string
         default: 'NatLabRockies/ROSCO'
       controller_tag:
@@ -104,7 +104,7 @@ jobs:
       fp_version:   ${{ steps.resolve_fp.outputs.fp_version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ------------------------------------------------------------------
       # Resolve "latest" fastprep tag to a pinned version so every matrix
@@ -190,7 +190,7 @@ jobs:
       # needed.  If the release only ships the binary, the ServoDyn patch
       # step below falls back to the files in the model sparse checkout.
       # ------------------------------------------------------------------
-      - name: Fetch controller from ROSCO release
+      - name: Fetch Controller from release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.ORG_TOKEN || github.token }}
@@ -217,10 +217,13 @@ jobs:
           Get-ChildItem $destDir | Format-Table Name, @{N='Size (KB)';E={[math]::Round($_.Length/1KB,1)}}
 
       # ------------------------------------------------------------------
-      # Patch DLL_FileName and DLL_InFile in ServoDyn.dat.
-      # DLL  — always taken from the controller release download dir.
-      # .IN  — preferred from the controller dir (bundled with release);
-      #        falls back to the model sparse checkout if absent.
+      # Patch DLL_FileName, DLL_InFile, and DLL_ProcName in ServoDyn.dat.
+      # DLL      — always taken from the controller release download dir.
+      # .IN      — preferred from the controller dir (bundled with release);
+      #            falls back to the model sparse checkout if absent.
+      # ProcName — 'DISCON' when the DLL name contains 'discon' or 'rosco'
+      #            (case-insensitive); otherwise the DLL stem (filename
+      #            without extension).
       # Cp/Ct data files referenced inside the .IN are co-located with it,
       # so no further patching of those references is needed.
       # ------------------------------------------------------------------
@@ -244,8 +247,19 @@ jobs:
 
           $dllPath = $dllFile.FullName
           $inPath  = $inFile.FullName
+
+          # Derive DLL_ProcName: ROSCO-family controllers export 'DISCON';
+          # any other controller exports a symbol matching the DLL stem.
+          $dllStem = [System.IO.Path]::GetFileNameWithoutExtension($dllFile.Name)
+          if ($dllFile.Name -imatch 'discon|rosco') {
+            $procName = 'DISCON'
+          } else {
+            $procName = $dllStem
+          }
+
           Write-Host "DLL_FileName -> $dllPath"
           Write-Host "DLL_InFile   -> $inPath"
+          Write-Host "DLL_ProcName -> $procName"
 
           $servoDynPath = "rosco\Examples\Test_Cases\NREL-5MW\NRELOffshrBsline5MW_Onshore_ServoDyn.dat"
           $content = Get-Content $servoDynPath
@@ -254,6 +268,8 @@ jobs:
                   $_ -replace '"[^"]*"', "`"$dllPath`""
               } elseif ($_ -match '\bDLL_InFile\b') {
                   $_ -replace '"[^"]*"', "`"$inPath`""
+              } elseif ($_ -match '\bDLL_ProcName\b') {
+                  $_ -replace '"[^"]*"', "`"$procName`""
               } else { $_ }
           }
           Set-Content $servoDynPath $content -Encoding utf8NoBOM
@@ -354,7 +370,7 @@ jobs:
       # paths in ServoDyn.dat remain valid.
       # ------------------------------------------------------------------
       - name: Upload campaign-setup artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: campaign-setup
           path: work/${{ steps.parse_dlc.outputs.project_name }}/
@@ -374,10 +390,10 @@ jobs:
       max-parallel: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download campaign-setup artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: campaign-setup
           path: work/${{ needs.prepare.outputs.project_name }}
@@ -407,7 +423,7 @@ jobs:
       # the fastprep folder structure.
       # ------------------------------------------------------------------
       - name: Download campaign-setup artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: campaign-setup
           path: work/${{ needs.prepare.outputs.project_name }}
@@ -417,7 +433,7 @@ jobs:
       # work/<project_name>/post-processed/<DLC_ID>/*.outb
       # ------------------------------------------------------------------
       - name: Download all outb artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: outb-*
           path: outb_staging
@@ -445,7 +461,7 @@ jobs:
       # Upload combined .outb artifact before running postfast
       # ------------------------------------------------------------------
       - name: Upload combined outb outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dlc-campaign-outputs-${{ github.run_id }}
           path: work/${{ needs.prepare.outputs.project_name }}/post-processed/
@@ -523,7 +539,7 @@ jobs:
       # Upload postfast STATS outputs
       # ------------------------------------------------------------------
       - name: Upload postfast outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dlc-postfast-outputs-${{ github.run_id }}
           path: |

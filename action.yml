@@ -93,7 +93,7 @@ runs:
     # ------------------------------------------------------------------
     - name: Cache OpenFAST + TurbSim binaries
       id: cache_bins
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ github.action_path }}/.bin
         key: openfast-turbsim-${{ inputs.openfast_version }}-win64

@@ -104,7 +104,7 @@ jobs:
       fp_version:   ${{ steps.resolve_fp.outputs.fp_version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ------------------------------------------------------------------
       # Resolve "latest" fastprep tag to a pinned version so every matrix
@@ -172,7 +172,7 @@ jobs:
       # Sparse checkout of NREL-5MW/ and Wind/ directories only.
       # ------------------------------------------------------------------
       - name: Fetch ROSCO turbine model and TurbSim template
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.model_repo }}
           ref: ${{ inputs.model_tag }}
@@ -390,7 +390,7 @@ jobs:
       max-parallel: 20
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download campaign-setup artifact
         uses: actions/download-artifact@v8

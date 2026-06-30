@@ -126,7 +126,7 @@ jobs:
 
       - name: Cache fastprep binary
         id: cache_fp
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .bin/prep_exe.exe
           key: fastprep-${{ steps.resolve_fp.outputs.fp_version }}-win64
@@ -487,7 +487,7 @@ jobs:
 
       - name: Cache postfast binary
         id: cache_pf
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .bin/postfast.exe
           key: postfast-${{ steps.resolve_pf.outputs.pf_version }}-win64

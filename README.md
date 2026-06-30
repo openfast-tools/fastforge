@@ -122,7 +122,7 @@ Run a full DLC sweep from another workflow:
 ```yaml
 jobs:
   sweep:
-    uses: turbinesim/fastforge/.github/workflows/dlc11-sweep.yml@main
+    uses: openfast-tools/fastforge/.github/workflows/dlc11-sweep.yml@main
     secrets: inherit
     with:
       dlc_file: 'my_campaign.txt'
@@ -135,7 +135,7 @@ Run a single simulation case directly:
 ```yaml
 - uses: actions/checkout@v4
   with:
-    repository: turbinesim/fastforge
+    repository: openfast-tools/fastforge
     path: openfast-action
 
 - uses: ./openfast-action

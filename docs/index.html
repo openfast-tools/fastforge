@@ -580,7 +580,7 @@ async function dispatch(file, isSmoke) {
   setDispatchMsg('<span class="spinner"></span>Dispatching…', false);
   setDispatchBtns(true);
 
-  const inputs = isSmoke ? { dlc_file: 'dlc_smoke.txt' } : {
+  const inputs = isSmoke ? {} : {
     dlc_file:         val('f-dlc'),
     model_repo:       val('f-mrepo'),
     model_tag:        val('f-rosco'),

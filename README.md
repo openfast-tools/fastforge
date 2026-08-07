@@ -63,7 +63,8 @@ Triggers: `workflow_call` (called by other workflows) and `workflow_dispatch`
 
 | Input | Default | Description |
 |---|---|---|
-| `dlc_file` | `dlc_11_details.txt` | DLC config file (repo-root-relative) |
+| `dlc_file` | `dlc_11_details.txt` | DLC config file (repo-root-relative). Ignored when `dlc_file_b64` is set — used only as the display filename in that case. |
+| `dlc_file_b64` | `''` | Base64-encoded contents of an uploaded DLC file. When set, takes precedence over `dlc_file`; see [Uploading a DLC file from the dashboard](#uploading-a-dlc-file-from-the-dashboard). |
 | `model_repo` | `NatLabRockies/ROSCO` | Public repo hosting the NREL-5MW turbine model and TurbSim template |
 | `model_tag` | `v2.10.5` | Release tag for the turbine model and TurbSim template |
 | `controller_repo` | `NatLabRockies/ROSCO` | Public repo hosting the controller release assets |
@@ -101,6 +102,17 @@ DLC1.1    NTM        4        20       2         3        0.14   0.0      0.0   
 | `Yaw_deg` | float | yaw error [deg] |
 | `IA_deg` | float | inflow (upflow) angle [deg] |
 | `Active` | int | `1` = include, `0` = skip |
+
+## Uploading a DLC file from the dashboard
+
+The **Browse** button next to the DLC file field lets you launch a sweep
+against a file from your own machine, instead of one already committed to
+the repo. The dashboard reads the file, base64-encodes it, and sends it as
+a new `dlc_file_b64` input; the `prepare` job decodes it to a temp file and
+uses that everywhere `dlc_file` used to be read. Max upload size is ~44 KB
+(GitHub's `workflow_dispatch` payload limit) — plenty for these DLC files,
+but larger files still need to be committed to the repo and referenced by
+path as before.
 
 ## ServoDyn controller path patching
 

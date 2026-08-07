@@ -212,8 +212,12 @@
       <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
         <div class="field">
           <label>DLC file</label>
-          <input id="f-dlc" value="dlc_11_details.txt">
-          <div class="field-hint">Config file path relative to repo root</div>
+          <div class="field-row">
+            <input id="f-dlc" value="dlc_11_details.txt">
+            <button class="btn-icon" type="button" title="Upload a DLC file from your computer" onclick="document.getElementById('f-dlc-upload').click()">📁 Browse</button>
+          </div>
+          <input type="file" id="f-dlc-upload" accept=".txt" style="display:none" onchange="onDlcFileSelected(event)">
+          <div class="field-hint" id="dlc-hint">Config file path relative to repo root — or click Browse to upload a file directly instead</div>
         </div>
       </div>
     </div>
@@ -365,6 +369,12 @@ const POLL_ACTIVE = 5000;   // a job is actively in_progress
 const POLL_QUEUED = 12000;  // run exists but nothing running yet
 const POLL_SLOW   = 20000;  // fallback / error retry
 
+// GitHub caps the serialized workflow_dispatch "inputs" object at ~65,535
+// bytes total. Base64 inflates size by ~4/3, and the other string inputs
+// (repo names, tags, versions) add a small fixed overhead, so this leaves
+// comfortable headroom while still catching files that are clearly too big.
+const MAX_DLC_B64_BYTES = 60000;
+
 // ════════════════════════════════════════════════════════════════════════════
 // State
 // ════════════════════════════════════════════════════════════════════════════
@@ -374,6 +384,62 @@ let clockTimer  = null;   // 1 s tick: elapsed counter + "last updated" text
 let lastPollAt  = null;
 let activeRunId = null;
 let startedAt   = null;
+let uploadedDlc = null;   // { name, sizeBytes, b64 } — set when a file is picked via Browse
+
+// ════════════════════════════════════════════════════════════════════════════
+// DLC file upload — encodes the picked file as base64 and sends it as
+// dlc_file_b64 so the run can use it without it being in the repo.
+// ════════════════════════════════════════════════════════════════════════════
+function onDlcFileSelected(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onerror = () => {
+    setDispatchMsg('✗ Could not read the selected file', true);
+    evt.target.value = '';
+  };
+  reader.onload = () => {
+    const bytes = new Uint8Array(reader.result);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+
+    if (b64.length > MAX_DLC_B64_BYTES) {
+      setDispatchMsg(
+        `✗ "${file.name}" is too large to upload (${fmtBytes(file.size)}). ` +
+        `DLC files must stay well under GitHub's workflow-dispatch payload limit — commit larger files to the repo and reference the path instead.`,
+        true
+      );
+      evt.target.value = '';
+      return;
+    }
+
+    uploadedDlc = { name: file.name, sizeBytes: file.size, b64 };
+
+    const dlcInput = document.getElementById('f-dlc');
+    dlcInput.value    = file.name;
+    dlcInput.disabled = true;
+
+    document.getElementById('dlc-hint').innerHTML =
+      `✓ Using uploaded file <strong>${escHtml(file.name)}</strong> (${fmtBytes(file.size)}) — ` +
+      `<a href="#" onclick="clearDlcUpload();return false;">clear</a>`;
+    setDispatchMsg('', false);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function clearDlcUpload() {
+  uploadedDlc = null;
+  document.getElementById('f-dlc-upload').value = '';
+
+  const dlcInput = document.getElementById('f-dlc');
+  dlcInput.disabled = false;
+  dlcInput.value    = 'dlc_11_details.txt';
+
+  document.getElementById('dlc-hint').textContent =
+    'Config file path relative to repo root — or click Browse to upload a file directly instead';
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Init
@@ -581,7 +647,8 @@ async function dispatch(file, isSmoke) {
   setDispatchBtns(true);
 
   const inputs = isSmoke ? {} : {
-    dlc_file:         val('f-dlc'),
+    dlc_file:         uploadedDlc ? uploadedDlc.name : val('f-dlc'),
+    dlc_file_b64:     uploadedDlc ? uploadedDlc.b64  : '',
     model_repo:       val('f-mrepo'),
     model_tag:        val('f-rosco'),
     controller_repo:  val('f-crepo'),

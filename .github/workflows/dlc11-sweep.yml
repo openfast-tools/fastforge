@@ -13,9 +13,13 @@ on:
   workflow_call:
     inputs:
       dlc_file:
-        description: 'DLC config file (repo-root-relative).'
+        description: 'DLC config file (repo-root-relative). Ignored when dlc_file_b64 is set — used only as the display filename in that case.'
         type: string
         default: 'dlc_11_details.txt'
+      dlc_file_b64:
+        description: 'Base64-encoded contents of an uploaded DLC file. When set, takes precedence over dlc_file and is decoded to a temp file instead of reading dlc_file from the checked-out repo.'
+        type: string
+        default: ''
       model_repo:
         description: 'Repository containing the NREL-5MW turbine model and TurbSim template (owner/repo)'
         type: string
@@ -53,9 +57,13 @@ on:
   workflow_dispatch:
     inputs:
       dlc_file:
-        description: 'DLC config file (repo-root-relative).'
+        description: 'DLC config file (repo-root-relative). Ignored when dlc_file_b64 is set — used only as the display filename in that case.'
         type: string
         default: 'dlc_11_details.txt'
+      dlc_file_b64:
+        description: 'Base64-encoded contents of an uploaded DLC file. When set, takes precedence over dlc_file and is decoded to a temp file instead of reading dlc_file from the checked-out repo.'
+        type: string
+        default: ''
       model_repo:
         description: 'Repository containing the NREL-5MW turbine model and TurbSim template (owner/repo)'
         type: string
@@ -107,6 +115,38 @@ jobs:
       - uses: actions/checkout@v7
 
       # ------------------------------------------------------------------
+      # Uploaded file (dlc_file_b64 set) -> decode to a temp file.
+      # Otherwise -> use dlc_file as a path already committed in the repo.
+      # Later steps read steps.resolve_dlc.outputs.dlc_path either way.
+      # ------------------------------------------------------------------
+      - name: Resolve DLC file
+        id: resolve_dlc
+        shell: pwsh
+        run: |
+          $b64 = '${{ inputs.dlc_file_b64 }}'
+          if ($b64 -ne '') {
+            $displayName = '${{ inputs.dlc_file }}'
+            if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = 'uploaded_dlc.txt' }
+            $safeName = Split-Path $displayName -Leaf
+            $path = Join-Path $env:RUNNER_TEMP $safeName
+            try {
+              $bytes = [Convert]::FromBase64String($b64)
+            } catch {
+              throw "dlc_file_b64 is not valid base64: $($_.Exception.Message)"
+            }
+            [System.IO.File]::WriteAllBytes($path, $bytes)
+            $sizeKB = [math]::Round($bytes.Length / 1KB, 1)
+            Write-Host "Using uploaded DLC file -> $path ($sizeKB KB)"
+          } else {
+            $path = '${{ inputs.dlc_file }}'
+            if (-not (Test-Path $path)) {
+              throw "dlc_file '$path' was not found in the checked-out repo, and no dlc_file_b64 upload was supplied."
+            }
+            Write-Host "Using repo DLC file -> $path"
+          }
+          "dlc_path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # ------------------------------------------------------------------
       # Resolve "latest" fastprep tag to a pinned version so every matrix
       # job uses the identical binary regardless of new releases mid-run.
       # ------------------------------------------------------------------
@@ -155,7 +195,7 @@ jobs:
         id: parse_dlc
         shell: pwsh
         run: |
-          $dlcFile = '${{ inputs.dlc_file }}'
+          $dlcFile = '${{ steps.resolve_dlc.outputs.dlc_path }}'
           $line = Get-Content $dlcFile |
             Where-Object { $_ -match '^\s*project_name\s*=' } |
             Select-Object -First 1
@@ -284,7 +324,7 @@ jobs:
         shell: pwsh
         run: |
           $wsp     = '${{ inputs.wind_speed }}'
-          $dlcFile = '${{ inputs.dlc_file }}'
+          $dlcFile = '${{ steps.resolve_dlc.outputs.dlc_path }}'
           Write-Host "Patching wind speed -> $wsp m/s in $dlcFile"
           $content = Get-Content $dlcFile
           $content = $content | ForEach-Object {
@@ -305,7 +345,7 @@ jobs:
         shell: pwsh
         run: |
           $fstFile  = (Resolve-Path 'rosco\Examples\Test_Cases\NREL-5MW\NREL-5MW.fst').Path
-          $dlcFile  = (Resolve-Path '${{ inputs.dlc_file }}').Path
+          $dlcFile  = (Resolve-Path '${{ steps.resolve_dlc.outputs.dlc_path }}').Path
           $tsTmpl   = (Resolve-Path 'rosco\Examples\Test_Cases\Wind\90m_12mps_twr.inp').Path
           $studyDir = (New-Item -ItemType Directory -Force -Path 'work').FullName
 
@@ -352,8 +392,10 @@ jobs:
           if ($matrixJson) {
             try { $caseCount = ($matrixJson | ConvertFrom-Json).include.Count } catch {}
           }
+          $dlcSource = if ('${{ inputs.dlc_file_b64 }}' -ne '') { 'uploaded via dashboard' } else { 'repo path' }
           $s  = "## Prepare`n`n"
           $s += "| Setting | Value |`n|---|---|`n"
+          $s += "| DLC file | ``${{ inputs.dlc_file }}`` ($dlcSource) |`n"
           $s += "| Project name | ``${{ steps.parse_dlc.outputs.project_name }}`` |`n"
           $s += "| fastprep version | ``${{ steps.resolve_fp.outputs.fp_version }}`` |`n"
           $s += "| Model repo | ``${{ inputs.model_repo }}`` |`n"

@@ -168,7 +168,7 @@ jobs:
         id: cache_fp
         uses: actions/cache@v6
         with:
-          path: .bin/prep_exe.exe
+          path: .bin/prep_win64.exe
           key: fastprep-${{ steps.resolve_fp.outputs.fp_version }}-win64
 
       - name: Download fastprep binary
@@ -182,10 +182,10 @@ jobs:
           Write-Host "Downloading fastprep $ver ..."
           gh release download $ver `
             --repo ${{ vars.FASTPREP_REPO }} `
-            --pattern 'prep_exe.exe' `
+            --pattern 'prep_win64.exe' `
             --dir .bin
-          $sizeMB = [math]::Round((Get-Item .bin\prep_exe.exe).Length / 1MB, 1)
-          Write-Host "Downloaded prep_exe.exe ($sizeMB MB)"
+          $sizeMB = [math]::Round((Get-Item .bin\prep_win64.exe).Length / 1MB, 1)
+          Write-Host "Downloaded prep_win64.exe ($sizeMB MB)"
 
       # ------------------------------------------------------------------
       # Parse project_name from DLC file — needed before controller fetch
@@ -355,7 +355,7 @@ jobs:
           Write-Host "  study_path  : $studyDir"
           Write-Host "  ts_template : $tsTmpl"
 
-          .\.bin\prep_exe.exe $fstFile $dlcFile $studyDir $tsTmpl
+          .\.bin\prep_win64.exe $fstFile $dlcFile $studyDir $tsTmpl
           if ($LASTEXITCODE -ne 0) { throw "fastprep failed (exit code $LASTEXITCODE)" }
 
       # ------------------------------------------------------------------

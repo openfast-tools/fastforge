@@ -267,14 +267,24 @@
       <div class="form-section-label">Tool versions</div>
       <div class="form-grid">
         <div class="field">
-          <label>fastprep version</label>
-          <input id="f-fp" value="latest" placeholder="latest">
-          <div class="field-hint">Case generator binary — tag or <em>latest</em> (private repo)</div>
+          <label>OpenFAST repo</label>
+          <input id="f-ofrepo" value="OpenFAST/openfast" onchange="loadOpenfastTags()">
+          <div class="field-hint">Repo hosting the <code>openfast_x64.exe</code> + <code>TurbSim_x64.exe</code> release assets — the official repo, or any (private) repo you can read</div>
         </div>
         <div class="field">
           <label>OpenFAST version</label>
-          <select id="f-of"><option value="v4.2.0" selected>v4.2.0</option></select>
-          <div class="field-hint">Aero-elastic simulation engine (OpenFAST/openfast)</div>
+          <div class="field-row">
+            <select id="f-of"><option value="v4.2.0" selected>v4.2.0</option></select>
+            <button class="btn-icon" title="Reload tags from OpenFAST repo" onclick="loadOpenfastTags()">↻</button>
+          </div>
+          <div class="field-hint" id="of-hint">Aero-elastic simulation engine release tag</div>
+        </div>
+      </div>
+      <div class="form-grid" style="margin-top: 12px;">
+        <div class="field">
+          <label>fastprep version</label>
+          <input id="f-fp" value="latest" placeholder="latest">
+          <div class="field-hint">Case generator binary — tag or <em>latest</em> (private repo)</div>
         </div>
         <div class="field">
           <label>postfast version</label>
@@ -448,7 +458,7 @@ function clearDlcUpload() {
   if (pat) document.getElementById('pat-input').value = pat;
 
   // Populate public-repo selects immediately — no auth needed
-  populateSelect('f-of', 'OpenFAST', 'openfast', 'v4.2.0');
+  loadOpenfastTags();
   loadModelTags();
   loadControllerTags();
 
@@ -577,6 +587,100 @@ async function loadControllerTags() {
   await populateControllerSelect('f-ctag', parts[0], parts[1], 'v2.9.0');
 }
 
+// ── OpenFAST repo / tag ─────────────────────────────────────────────────────
+// Mirrors the Controller Repo/Tag pair. Defaults to the official
+// OpenFAST/openfast @ v4.2.0, but any repo the token can read may be used.
+// The tag list is restricted to releases that carry BOTH binaries the
+// workflow downloads, so a tag that would fail at download time is not offered.
+const OPENFAST_DEFAULT_REPO = 'OpenFAST/openfast';
+const OPENFAST_DEFAULT_TAG  = 'v4.2.0';
+const OPENFAST_ASSETS       = ['openfast_x64.exe', 'TurbSim_x64.exe'];
+const OPENFAST_HINT_DEFAULT = 'Aero-elastic simulation engine release tag';
+let   openfastReqId         = 0;   // guards against out-of-order responses
+
+function setOpenfastHint(html, isErr) {
+  const el = document.getElementById('of-hint');
+  el.innerHTML   = html;
+  el.style.color = isErr ? 'var(--error)' : '';
+}
+
+async function loadOpenfastTags() {
+  const raw   = document.getElementById('f-ofrepo').value.trim();
+  const parts = raw.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    setOpenfastHint('Enter the repo as <code>owner/repo</code>', true);
+    return;
+  }
+  await populateOpenfastSelect('f-of', parts[0], parts[1]);
+}
+
+async function populateOpenfastSelect(fieldId, owner, repo) {
+  const sel = document.getElementById(fieldId);
+  if (!sel || sel.tagName !== 'SELECT') return;
+
+  const reqId         = ++openfastReqId;
+  const fullName      = `${owner}/${repo}`;
+  const isDefaultRepo = fullName.toLowerCase() === OPENFAST_DEFAULT_REPO.toLowerCase();
+
+  sel.disabled  = true;
+  sel.innerHTML = `<option value="" disabled selected>Loading…</option>`;
+  setOpenfastHint(OPENFAST_HINT_DEFAULT, false);
+
+  try {
+    const releases = await ghUrl(
+      `https://api.github.com/repos/${owner}/${repo}/releases?per_page=30`
+    );
+    if (reqId !== openfastReqId) return;   // a newer request superseded this one
+
+    const published = releases.filter(r => !r.draft && r.tag_name);
+    const hasAll    = r => OPENFAST_ASSETS.every(need =>
+      (r.assets || []).some(a => a.name.toLowerCase() === need.toLowerCase())
+    );
+    const filtered  = published.filter(hasAll);
+    const pool      = filtered.length > 0 ? filtered : published;
+    if (pool.length === 0) throw new Error('no releases');
+
+    sel.innerHTML = '';
+    const tags = pool.map(r => r.tag_name);
+    // Official repo: always offer the pinned default even if it has scrolled
+    // past the first page of releases. Custom repo: only real tags.
+    if (isDefaultRepo && !tags.includes(OPENFAST_DEFAULT_TAG)) tags.unshift(OPENFAST_DEFAULT_TAG);
+    tags.forEach(t => sel.add(new Option(t, t)));
+
+    // Official repo -> v4.2.0; custom repo -> newest qualifying release.
+    const preferred = isDefaultRepo ? OPENFAST_DEFAULT_TAG : null;
+    const match = Array.from(sel.options).find(o => o.value === preferred);
+    (match || sel.options[0]).selected = true;
+
+    if (filtered.length === 0) {
+      setOpenfastHint(
+        `⚠ No release in <strong>${escHtml(fullName)}</strong> has both ` +
+        `<code>openfast_x64.exe</code> and <code>TurbSim_x64.exe</code> — showing all releases; ` +
+        `the run will fail unless the chosen tag has them`, true);
+    } else {
+      setOpenfastHint(
+        `${filtered.length} release${filtered.length === 1 ? '' : 's'} with ` +
+        `<code>openfast_x64.exe</code> + <code>TurbSim_x64.exe</code>`, false);
+    }
+  } catch (e) {
+    if (reqId !== openfastReqId) return;
+    sel.innerHTML = '';
+    if (isDefaultRepo) {
+      // Same behaviour as the other dropdowns: keep the pinned default usable.
+      sel.add(new Option(OPENFAST_DEFAULT_TAG, OPENFAST_DEFAULT_TAG, true, true));
+    } else {
+      // Never fall back to the default tag for a custom repo — it would not
+      // exist there. Leave the value empty so dispatch is blocked.
+      sel.add(new Option('— tags unavailable —', '', true, true));
+      sel.options[0].disabled = true;
+      setOpenfastHint(
+        `✗ Could not list releases of <strong>${escHtml(fullName)}</strong> (${escHtml(e.message)}). ` +
+        `For a private repo your token must have read access to it.`, true);
+    }
+  }
+  sel.disabled = false;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Auth
 // ════════════════════════════════════════════════════════════════════════════
@@ -643,6 +747,18 @@ async function verifyPAT() {
 // Dispatch
 // ════════════════════════════════════════════════════════════════════════════
 async function dispatch(file, isSmoke) {
+  // Full sweep only (smoke sends no inputs and uses the workflow defaults).
+  if (!isSmoke) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(val('f-ofrepo'))) {
+      setDispatchMsg('✗ OpenFAST repo must be in owner/repo form', true);
+      return;
+    }
+    if (!val('f-of')) {
+      setDispatchMsg('✗ No OpenFAST tag selected — tags could not be loaded from the OpenFAST repo', true);
+      return;
+    }
+  }
+
   setDispatchMsg('<span class="spinner"></span>Dispatching…', false);
   setDispatchBtns(true);
 
@@ -655,6 +771,7 @@ async function dispatch(file, isSmoke) {
     controller_tag:   val('f-ctag'),
     fastprep_version: val('f-fp'),
     postfast_version: val('f-pf'),
+    openfast_repo:    val('f-ofrepo'),
     openfast_version: val('f-of'),
   };
 

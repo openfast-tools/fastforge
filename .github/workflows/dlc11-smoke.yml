@@ -2,8 +2,9 @@ name: DLC 1.1 smoke
 
 # Cheap end-to-end pipeline check triggered on every push and pull-request
 # to main. Delegates to the reusable dlc11-sweep.yml workflow with
-# dlc_smoke.txt. controller_repo and controller_tag are user inputs when
-# triggered manually; push/PR runs use the sweep workflow defaults.
+# dlc_smoke.txt. controller_repo / controller_tag and openfast_repo /
+# openfast_version are user inputs when triggered manually; push/PR runs use
+# the sweep workflow defaults.
 
 on:
   push:
@@ -24,6 +25,14 @@ on:
         description: 'Release tag to download the controller from'
         type: string
         default: 'v2.9.0'
+      openfast_repo:
+        description: 'Repository hosting the OpenFAST + TurbSim release assets (owner/repo). May be private.'
+        type: string
+        default: 'OpenFAST/openfast'
+      openfast_version:
+        description: 'OpenFAST release tag (in openfast_repo)'
+        type: string
+        default: 'v4.2.0'
 
 concurrency:
   group: dlc11-smoke-${{ github.ref }}
@@ -37,4 +46,6 @@ jobs:
       dlc_file:        'dlc_smoke.txt'
       controller_repo: ${{ inputs.controller_repo || 'NatLabRockies/ROSCO' }}
       controller_tag:  ${{ inputs.controller_tag  || 'v2.9.0' }}
+      openfast_repo:    ${{ inputs.openfast_repo    || 'OpenFAST/openfast' }}
+      openfast_version: ${{ inputs.openfast_version || 'v4.2.0' }}
       wind_speed:      ${{ inputs.wind_speed }}

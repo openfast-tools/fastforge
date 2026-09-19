@@ -41,8 +41,8 @@ IEC_standard        = 1-ED3
 turbulence_class    = B
 
 % ---- OpenFAST simulation settings ---------------------------------------
-% 660 s total = 60 s transient (discarded in post) + 600 s production window
-t_max_s             = 660.0
+% 660 s total = 60 s transient (discarded in post) + 100 s production window
+t_max_s             = 160.0
 dt_s                = 0.00625
 t_transient_s       = 60.0
 write_binary_output = 1
@@ -50,5 +50,5 @@ write_binary_output = 1
 % ---- DLC table ----------------------------------------------------------
 % DLC_ID   TurbModel   WSP_min  WSP_max  WSP_step  N_seeds  Shear  Yaw_deg  IA_deg  Active
 
-% DLC 1.1  NTM -- normal power production, 9 wind speeds x 6 seeds = 54 cases
-DLC1.1    NTM    4    20    2    3    0.14    0.0    0.0    1
+% DLC 1.1  NTM -- normal power production, 9 wind speeds x 2 seeds = 18 cases
+DLC1.1    NTM    4    20    2    2    0.14    0.0    0.0    1

@@ -45,8 +45,12 @@ on:
         description: 'fastprep release tag, or "latest"'
         type: string
         default: 'latest'
+      openfast_repo:
+        description: 'Repository hosting the OpenFAST + TurbSim release assets (owner/repo). May be private.'
+        type: string
+        default: 'OpenFAST/openfast'
       openfast_version:
-        description: 'OpenFAST release tag'
+        description: 'OpenFAST release tag (in openfast_repo)'
         type: string
         default: 'v4.2.0'
       postfast_version:
@@ -89,8 +93,12 @@ on:
         description: 'fastprep release tag, or "latest"'
         type: string
         default: 'latest'
+      openfast_repo:
+        description: 'Repository hosting the OpenFAST + TurbSim release assets (owner/repo). May be private.'
+        type: string
+        default: 'OpenFAST/openfast'
       openfast_version:
-        description: 'OpenFAST release tag'
+        description: 'OpenFAST release tag (in openfast_repo)'
         type: string
         default: 'v4.2.0'
       postfast_version:
@@ -401,7 +409,7 @@ jobs:
           $s += "| Model repo | ``${{ inputs.model_repo }}`` |`n"
           $s += "| Model tag  | ``${{ inputs.model_tag }}`` |`n"
           $s += "| Controller | ``${{ inputs.controller_repo }}`` @ ``${{ inputs.controller_tag }}`` |`n"
-          $s += "| OpenFAST version | ``${{ inputs.openfast_version }}`` |`n"
+          $s += "| OpenFAST | ``${{ inputs.openfast_repo }}`` @ ``${{ inputs.openfast_version }}`` |`n"
           $s += "| Cases generated | $caseCount |`n"
           $s | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
@@ -445,7 +453,9 @@ jobs:
         with:
           fst_rel_path:            ${{ matrix.fst_path }}
           campaign_dir:            ${{ github.workspace }}/work/${{ needs.prepare.outputs.project_name }}
+          openfast_repo:           ${{ inputs.openfast_repo }}
           openfast_version:        ${{ inputs.openfast_version }}
+          github_token:            ${{ secrets.ORG_TOKEN }}
           upload_artifact:         'true'
           artifact_retention_days: '90'
 

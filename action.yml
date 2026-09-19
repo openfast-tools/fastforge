@@ -15,10 +15,24 @@ inputs:
       Absolute path to the downloaded campaign directory,
       e.g. /home/runner/work/repo/campaign_setup
     required: true
+  openfast_repo:
+    description: >-
+      Repository (owner/repo) whose GitHub release hosts openfast_x64.exe and
+      TurbSim_x64.exe. Defaults to the official OpenFAST/openfast; may be a
+      private repo (then github_token must be able to read it).
+    required: false
+    default: 'OpenFAST/openfast'
   openfast_version:
-    description: 'OpenFAST GitHub release tag to download'
+    description: 'Release tag in openfast_repo to download the binaries from'
     required: false
     default: 'v4.2.0'
+  github_token:
+    description: >-
+      Token used by the GitHub CLI to download the release assets. Needed when
+      openfast_repo is private. Falls back to the workflow's github.token
+      (enough for public repos) when left empty.
+    required: false
+    default: ''
   upload_artifact:
     description: 'Upload the .outb as a workflow artifact (true/false)'
     required: false
@@ -91,23 +105,65 @@ runs:
     # ------------------------------------------------------------------
     # 2. Cache / download OpenFAST + TurbSim binaries
     # ------------------------------------------------------------------
+    - name: Validate OpenFAST source
+      id: of_src
+      shell: pwsh
+      env:
+        OF_REPO: ${{ inputs.openfast_repo }}
+        OF_TAG:  ${{ inputs.openfast_version }}
+      run: |
+        # Values arrive through the environment (never interpolated into the
+        # script text) so an odd repo/tag string cannot inject commands.
+        if ($env:OF_REPO -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+          throw "openfast_repo must be in 'owner/repo' form, got '$($env:OF_REPO)'"
+        }
+        if ([string]::IsNullOrWhiteSpace($env:OF_TAG)) {
+          throw "openfast_version (release tag) must not be empty"
+        }
+        # '/' -> '__' so the repo can be embedded in a cache key
+        $slug = $env:OF_REPO.Replace('/', '__')
+        Write-Host "OpenFAST source : $($env:OF_REPO) @ $($env:OF_TAG)"
+        "repo_slug=$slug" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    # Cache key = repo + tag, so the same tag in two different repos (e.g. the
+    # official v4.2.0 vs a private build also tagged v4.2.0) never share an entry.
     - name: Cache OpenFAST + TurbSim binaries
       id: cache_bins
       uses: actions/cache@v6
       with:
         path: ${{ github.action_path }}/.bin
-        key: openfast-turbsim-${{ inputs.openfast_version }}-win64
+        key: openfast-turbsim-${{ steps.of_src.outputs.repo_slug }}-${{ inputs.openfast_version }}-win64
 
     - name: Download OpenFAST + TurbSim binaries
       if: steps.cache_bins.outputs.cache-hit != 'true'
       shell: pwsh
+      env:
+        # gh authenticates with this token; required for private repos.
+        GH_TOKEN: ${{ inputs.github_token || github.token }}
+        OF_REPO:  ${{ inputs.openfast_repo }}
+        OF_TAG:   ${{ inputs.openfast_version }}
       run: |
-        $bin  = Join-Path '${{ github.action_path }}' '.bin'
+        $bin = Join-Path '${{ github.action_path }}' '.bin'
         New-Item -ItemType Directory -Force -Path $bin | Out-Null
-        $base = 'https://github.com/OpenFAST/openfast/releases/download/${{ inputs.openfast_version }}'
-        Write-Host "Downloading OpenFAST + TurbSim from $base ..."
-        Invoke-WebRequest -Uri "$base/openfast_x64.exe" -OutFile (Join-Path $bin 'openfast_x64.exe')
-        Invoke-WebRequest -Uri "$base/TurbSim_x64.exe"  -OutFile (Join-Path $bin 'TurbSim_x64.exe')
+
+        Write-Host "Downloading OpenFAST + TurbSim from $($env:OF_REPO) @ $($env:OF_TAG) ..."
+        gh release download $env:OF_TAG `
+          --repo $env:OF_REPO `
+          --pattern 'openfast_x64.exe' `
+          --pattern 'TurbSim_x64.exe' `
+          --dir $bin `
+          --clobber
+        if ($LASTEXITCODE -ne 0) {
+          throw "Could not download release '$($env:OF_TAG)' from '$($env:OF_REPO)' (gh exit code $LASTEXITCODE). For a private repo, check that github_token can read it."
+        }
+
+        # Both assets must be present; a release that lacks one would otherwise
+        # fail later with a much less obvious error.
+        foreach ($f in 'openfast_x64.exe', 'TurbSim_x64.exe') {
+          if (-not (Test-Path (Join-Path $bin $f))) {
+            throw "Release '$($env:OF_TAG)' of '$($env:OF_REPO)' has no asset named '$f'"
+          }
+        }
         Get-ChildItem $bin | Format-Table Name, @{N='Size (MB)';E={[math]::Round($_.Length/1MB,1)}}
 
     # ------------------------------------------------------------------

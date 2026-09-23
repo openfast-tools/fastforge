@@ -441,6 +441,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: openfast-tools/fastforge
+          ref: main
 
       - name: Download campaign-setup artifact
         uses: actions/download-artifact@v8

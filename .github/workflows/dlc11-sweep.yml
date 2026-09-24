@@ -524,7 +524,13 @@ jobs:
               $caseStem = $caseDir.Name -replace '^case-', ''
               $dlcId    = $caseStem.Split('_')[0]
               $dest     = New-Item -ItemType Directory -Force -Path "$postfastDir\$dlcId"
-              Get-ChildItem $caseDir.FullName -File | ForEach-Object {
+              # -Recurse: upload-artifact preserves each file's path relative
+              # to the common ancestor of fst_dir and wind_dir (the two
+              # source directories bundled into this artifact in
+              # action.yml), so the .fst/.outb/.out/.inp are nested several
+              # folders deep inside $caseDir.FullName, not sitting flat at
+              # its top level. Flatten by filename into $dest.
+              Get-ChildItem $caseDir.FullName -File -Recurse | ForEach-Object {
                 Move-Item $_.FullName (Join-Path $dest $_.Name) -Force
               }
             }

@@ -7,7 +7,9 @@ name: DLC campaign
 #   prepare      – fetch ROSCO models, download controller release assets,
 #                  patch ServoDyn, run fastprep, build matrix, upload artifact
 #   simulate     – matrix: TurbSim + OpenFAST per .fst case  (action.yml)
-#   post_process – collect .outb artifacts, run postfast, upload STATS outputs
+#   post_process – collect per-case bundles (inputs + outputs), run
+#                  postfast, upload ONE combined artifact (inputs +
+#                  outputs + STATS) even on partial failure
 
 on:
   workflow_call:
@@ -464,8 +466,10 @@ jobs:
 
   # =========================================================================
   # JOB 3 — post_process  (always runs, even if some simulate jobs failed)
-  # Collects all per-case .outb artifacts, organises into DLC subfolders,
-  # runs postfast, uploads STATS outputs, then cleans up per-case artifacts.
+  # Collects all per-case bundles (inputs + outputs), organises into DLC
+  # subfolders alongside shared Model/controllers/, runs postfast, and
+  # uploads ONE combined artifact (inputs + outputs + STATS) — with or
+  # without a fully successful run — before cleaning up per-case artifacts.
   # =========================================================================
   post_process:
     needs: [prepare, simulate]
@@ -484,44 +488,73 @@ jobs:
           path: work/${{ needs.prepare.outputs.project_name }}
 
       # ------------------------------------------------------------------
-      # Collect all per-case .outb artifacts, organise into
-      # work/<project_name>/post-processed/<DLC_ID>/*.outb
+      # Collect all per-case bundles (inputs + outputs), organise into
+      # work/<project_name>/post-processed/<DLC_ID>/*
+      #
+      # No merge-multiple here — each case-<case_stem> artifact is kept in
+      # its own subfolder under case_staging (named after the artifact,
+      # e.g. case_staging/case-DLC1.1_NTM_U14.../...). That folder name is
+      # what gives us the DLC_ID: the wind .inp bundled inside doesn't
+      # carry a DLC_ID prefix the way the .fst/.outb/.out do, so we can't
+      # recover it from an individual filename once files are flattened
+      # together — but the artifact/folder name always starts with it.
       # ------------------------------------------------------------------
-      - name: Download all outb artifacts
+      - name: Download all case artifacts
+        if: always()
         uses: actions/download-artifact@v8
         with:
-          pattern: outb-*
-          path: outb_staging
-          merge-multiple: true
+          pattern: case-*
+          path: case_staging
+        continue-on-error: true
 
-      - name: Organise outbs into post-processed/<DLC_ID>/
+      - name: Organise cases into post-processed/<DLC_ID>/
+        if: always()
         shell: pwsh
         run: |
           $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
-          $outbs = Get-ChildItem outb_staging -Filter '*.outb' -ErrorAction SilentlyContinue
-          if ($outbs.Count -eq 0) {
-            Write-Warning 'No .outb files collected — all simulate jobs may have failed'
+          $caseDirs = Get-ChildItem case_staging -Directory -ErrorAction SilentlyContinue
+          if (-not $caseDirs -or $caseDirs.Count -eq 0) {
+            Write-Warning 'No case-* artifacts collected — all simulate jobs may have failed'
           } else {
-            Write-Host "$($outbs.Count) .outb file(s) — organising into $postfastDir ..."
-            foreach ($f in $outbs) {
-              $dlcId = $f.BaseName.Split('_')[0]
-              $dest  = New-Item -ItemType Directory -Force -Path "$postfastDir\$dlcId"
-              Move-Item $f.FullName (Join-Path $dest $f.Name)
+            Write-Host "$($caseDirs.Count) case artifact(s) — organising into $postfastDir ..."
+            foreach ($caseDir in $caseDirs) {
+              # Artifact name is "case-<case_stem>"; case_stem itself is
+              # "<DLC_ID>_<wind_stem>_Yaw..._IA...", so DLC_ID is the first
+              # underscore-delimited token after stripping the "case-" prefix.
+              $caseStem = $caseDir.Name -replace '^case-', ''
+              $dlcId    = $caseStem.Split('_')[0]
+              $dest     = New-Item -ItemType Directory -Force -Path "$postfastDir\$dlcId"
+              Get-ChildItem $caseDir.FullName -File | ForEach-Object {
+                Move-Item $_.FullName (Join-Path $dest $_.Name) -Force
+              }
             }
-            Get-ChildItem $postfastDir -Recurse -Filter '*.outb' | Sort-Object Name |
-              Format-Table Name, @{N='Size (MB)';E={[math]::Round($_.Length/1MB,1)}}
+            Get-ChildItem $postfastDir -Recurse -File | Sort-Object FullName |
+              Format-Table Name, @{N='Size (MB)';E={[math]::Round($_.Length/1MB,2)}}
           }
 
       # ------------------------------------------------------------------
-      # Upload combined .outb artifact before running postfast
+      # Copy the shared Model/ and controllers/ (already downloaded as
+      # part of campaign-setup) into post-processed/ once — not per case —
+      # so the combined artifact carries everything needed to manually
+      # re-run any case without going back to the (3-day, likely expired)
+      # campaign-setup artifact.
       # ------------------------------------------------------------------
-      - name: Upload combined outb outputs
-        uses: actions/upload-artifact@v7
-        with:
-          name: dlc-campaign-outputs-${{ github.run_id }}
-          path: work/${{ needs.prepare.outputs.project_name }}/post-processed/
-          if-no-files-found: warn
-          retention-days: 90
+      - name: Copy shared Model/ and controllers/ into post-processed/
+        if: always()
+        shell: pwsh
+        run: |
+          $projectDir  = "work\${{ needs.prepare.outputs.project_name }}"
+          $postfastDir = "$projectDir\post-processed"
+          New-Item -ItemType Directory -Force -Path $postfastDir | Out-Null
+          foreach ($sub in 'Model', 'controllers') {
+            $src = Join-Path $projectDir $sub
+            if (Test-Path $src) {
+              Copy-Item $src (Join-Path $postfastDir $sub) -Recurse -Force
+              Write-Host "Copied $src -> $postfastDir\$sub"
+            } else {
+              Write-Host "$src not found — skipping"
+            }
+          }
 
       # ------------------------------------------------------------------
       # Resolve, cache and download postfast binary
@@ -567,39 +600,37 @@ jobs:
       # Run postfast
       # ------------------------------------------------------------------
       - name: Run postfast
+        if: always()
         shell: pwsh
         run: |
           $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
-          $outbCount = (Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue).Count
-          if ($outbCount -eq 0) {
-            Write-Warning 'Skipping postfast — no .outb files available'
+          if (-not (Test-Path $postfastDir)) {
+            Write-Warning "Skipping postfast — $postfastDir does not exist"
           } else {
-            Write-Host "Running postfast on $postfastDir ($outbCount .outb file(s)) ..."
-            .\.bin\postfast.exe $postfastDir
-            if ($LASTEXITCODE -ne 0) { throw "postfast failed (exit code $LASTEXITCODE)" }
+            $outbCount = (Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue).Count
+            if ($outbCount -eq 0) {
+              Write-Warning 'Skipping postfast — no .outb files available'
+            } else {
+              Write-Host "Running postfast on $postfastDir ($outbCount .outb file(s)) ..."
+              .\.bin\postfast.exe $postfastDir
+              if ($LASTEXITCODE -ne 0) { throw "postfast failed (exit code $LASTEXITCODE)" }
+            }
           }
 
       # ------------------------------------------------------------------
-      # Delete .outb files from post-processed/ — STATS folders remain
+      # Upload ONE combined artifact: inputs (.fst, wind .inp, Model/,
+      # controllers/), outputs (.outb/.out), and postfast's STATS/ results,
+      # all together under post-processed/<DLC_ID>/ (+ shared Model/,
+      # controllers/). Runs regardless of outcome (always()) so a postfast
+      # failure or partial case failures still upload whatever succeeded,
+      # rather than silently producing nothing.
       # ------------------------------------------------------------------
-      - name: Remove .outb files from post-processed
-        shell: pwsh
-        run: |
-          $postfastDir = "work\${{ needs.prepare.outputs.project_name }}\post-processed"
-          $outbs = Get-ChildItem $postfastDir -Recurse -Filter '*.outb' -ErrorAction SilentlyContinue
-          Write-Host "Deleting $($outbs.Count) .outb file(s) from $postfastDir ..."
-          $outbs | Remove-Item -Force
-
-      # ------------------------------------------------------------------
-      # Upload postfast STATS outputs
-      # ------------------------------------------------------------------
-      - name: Upload postfast outputs
+      - name: Upload combined results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: dlc-postfast-outputs-${{ github.run_id }}
-          path: |
-            work/${{ needs.prepare.outputs.project_name }}/post-processed/STATS/
-            work/${{ needs.prepare.outputs.project_name }}/post-processed/*/STATS/
+          name: dlc-results-${{ github.run_id }}
+          path: work/${{ needs.prepare.outputs.project_name }}/post-processed/
           if-no-files-found: warn
           retention-days: 90
 
@@ -616,15 +647,19 @@ jobs:
           $s  = "## Post Process`n`n"
           $s += "| Item | Detail |`n|---|---|`n"
           $s += "| .outb files processed | $outbCount |`n"
-          $s += "| Combined outputs | [dlc-campaign-outputs-${{ github.run_id }}]($runUrl) |`n"
-          $s += "| Postfast outputs  | [dlc-postfast-outputs-${{ github.run_id }}]($runUrl) |`n"
+          $s += "| Combined results (inputs + outputs + STATS) | [dlc-results-${{ github.run_id }}]($runUrl) |`n"
           $s | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       # ------------------------------------------------------------------
-      # Delete per-case outb artifacts
+      # Delete per-case artifacts — their contents are now folded into the
+      # combined dlc-results-<run_id> artifact above, so keeping them
+      # around separately is redundant. Runs regardless of outcome
+      # (always()) since anything that succeeded has already been folded
+      # in by the always()-gated steps above, whatever the job's overall
+      # conclusion.
       # ------------------------------------------------------------------
-      - name: Delete per-case outb artifacts
-        if: success()
+      - name: Delete per-case case artifacts
+        if: always()
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.ORG_TOKEN }}
@@ -632,7 +667,7 @@ jobs:
           $artifacts = gh api `
             repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts `
             | ConvertFrom-Json | Select-Object -ExpandProperty artifacts `
-            | Where-Object { $_.name -like 'outb-*' }
+            | Where-Object { $_.name -like 'case-*' }
           Write-Host "Deleting $($artifacts.Count) per-case artifact(s) ..."
           foreach ($a in $artifacts) {
             gh api --method DELETE `

@@ -221,15 +221,35 @@ runs:
           "outb_path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         }
 
+        $out = Join-Path $fstDir "$caseStem.out"
+        if (Test-Path $out) {
+          "out_path=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        } else {
+          "out_path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        }
+
     # ------------------------------------------------------------------
-    # 5a. Upload .outb on success
+    # 5a. Upload this case's inputs + outputs as one bundle
+    #
+    # Bundles the .fst (+ the wind .inp it references) alongside whatever
+    # outputs OpenFAST produced (.outb and/or ASCII .out), so the whole
+    # thing can be downloaded and manually re-run later without hunting
+    # down inputs from a separate, short-lived artifact. Runs whenever the
+    # case reached the OpenFAST step at all (always(), not success()) so a
+    # case that fails mid-run still uploads its inputs for inspection —
+    # "Upload diagnostics on failure" below additionally captures
+    # failure-specific files (.sum/.ech/.log) on top of this.
     # ------------------------------------------------------------------
-    - name: Upload .outb artifact
-      if: success() && inputs.upload_artifact == 'true' && steps.openfast.outputs.outb_path != ''
+    - name: Upload case bundle (inputs + outputs)
+      if: always() && inputs.upload_artifact == 'true'
       uses: actions/upload-artifact@v7
       with:
-        name: outb-${{ steps.derive.outputs.case_stem }}
-        path: ${{ steps.openfast.outputs.outb_path }}
+        name: case-${{ steps.derive.outputs.case_stem }}
+        path: |
+          ${{ steps.derive.outputs.fst_dir }}/${{ steps.derive.outputs.case_stem }}.fst
+          ${{ steps.derive.outputs.fst_dir }}/${{ steps.derive.outputs.case_stem }}.outb
+          ${{ steps.derive.outputs.fst_dir }}/${{ steps.derive.outputs.case_stem }}.out
+          ${{ steps.derive.outputs.wind_dir }}/${{ steps.derive.outputs.wind_stem }}.inp
         if-no-files-found: warn
         retention-days: ${{ inputs.artifact_retention_days }}
 

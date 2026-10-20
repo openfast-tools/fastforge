@@ -44,7 +44,7 @@ can also be called directly from any workflow.
 | `openfast_version` | no | `v4.2.0` | Release tag in `openfast_repo` to download from |
 | `github_token` | no | `''` | Token used by `gh` to download the assets; required for a private `openfast_repo`, falls back to `github.token` |
 | `upload_artifact` | no | `true` | Upload the `.outb` as a workflow artifact |
-| `artifact_retention_days` | no | `90` | Artifact retention period [days] |
+| `artifact_retention_days` | no | `1` | Artifact retention period [days] |
 
 ### Outputs
 
@@ -222,3 +222,24 @@ Run a single simulation case directly:
     fst_rel_path: 'FST/DLC1.1/DLC1.1_NTM_U12_S01_Yaw000_IA00.fst'
     campaign_dir: '${{ github.workspace }}/work/my_project'
 ```
+
+---
+
+## Web UI as a Docker image
+
+`docs/index.html` is the campaign launcher UI. It is a single static page that calls the
+GitHub API directly from the browser (token kept in the browser's `localStorage`), so the
+container only serves files - nothing runs server-side.
+
+```
+docker run -p 8080:80 ghcr.io/openfast-tools/fastforge-ui:latest
+```
+
+Then open <http://localhost:8080>. The image is built from `Dockerfile` (nginx serving `docs/`)
+by `.github/workflows/docker.yml` on every change to `docs/`, and pushed to GHCR on `main`
+(pull requests only build). To build locally: `docker build -t fastforge-ui .`
+
+## Artifact retention
+
+All artifacts (`campaign-setup`, per-case `case-*`, `failed-*` diagnostics and the combined
+`dlc-results-<run_id>`) are kept for **1 day**. Download results promptly after a run.

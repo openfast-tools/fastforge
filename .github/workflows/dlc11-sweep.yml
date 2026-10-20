@@ -449,7 +449,7 @@ jobs:
         with:
           name: campaign-setup
           path: work/${{ steps.parse_dlc.outputs.project_name }}/
-          retention-days: 3
+          retention-days: 1
 
   # =========================================================================
   # JOB 2 — simulate  (matrix: one runner per .fst file)
@@ -486,7 +486,7 @@ jobs:
           openfast_version:        ${{ inputs.openfast_version }}
           github_token:            ${{ secrets.ORG_TOKEN }}
           upload_artifact:         'true'
-          artifact_retention_days: '90'
+          artifact_retention_days: '1'
 
   # =========================================================================
   # JOB 3 — post_process  (always runs, even if some simulate jobs failed)
@@ -567,7 +567,7 @@ jobs:
       # Copy the shared Model/ and controllers/ (already downloaded as
       # part of campaign-setup) into post-processed/ once — not per case —
       # so the combined artifact carries everything needed to manually
-      # re-run any case without going back to the (3-day, likely expired)
+      # re-run any case without going back to the (1-day, likely expired)
       # campaign-setup artifact.
       # ------------------------------------------------------------------
       - name: Copy shared Model/ and controllers/ into post-processed/
@@ -663,7 +663,7 @@ jobs:
           name: dlc-results-${{ github.run_id }}
           path: work/${{ needs.prepare.outputs.project_name }}/post-processed/
           if-no-files-found: warn
-          retention-days: 90
+          retention-days: 1
 
       # ------------------------------------------------------------------
       # Write job summary

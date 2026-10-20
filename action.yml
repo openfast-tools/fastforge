@@ -40,7 +40,7 @@ inputs:
   artifact_retention_days:
     description: 'Retention period for per-case .outb artifacts (days)'
     required: false
-    default: '90'
+    default: '1'
 
 outputs:
   case_stem:
@@ -269,4 +269,4 @@ runs:
           ${{ steps.derive.outputs.fst_dir }}/*_IW.dat
           ${{ steps.derive.outputs.wind_dir }}/${{ steps.derive.outputs.wind_stem }}.inp
         if-no-files-found: warn
-        retention-days: 14
+        retention-days: 1

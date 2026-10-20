@@ -116,6 +116,7 @@ jobs:
   # =========================================================================
   prepare:
     runs-on: windows-latest
+    timeout-minutes: 30
     outputs:
       matrix:       ${{ steps.build_matrix.outputs.matrix }}
       project_name: ${{ steps.parse_dlc.outputs.project_name }}
@@ -369,6 +370,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "fastprep failed (exit code $LASTEXITCODE)" }
 
       # ------------------------------------------------------------------
+      # fastprep copies only the DLL and the .IN file into
+      # Model/work/<project_name>/controllers/ (the folder ServoDyn points
+      # to). Files the .IN refers to relative to itself (e.g. the Cp/Ct
+      # tables) stay behind in work/<project_name>/controllers/, so the
+      # controller cannot find them at run time. Copy them next to the DLL.
+      # ------------------------------------------------------------------
+      - name: Copy controller support files next to the DLL used by ServoDyn
+        shell: pwsh
+        run: |
+          $proj = "work\${{ steps.parse_dlc.outputs.project_name }}"
+          $src  = "$proj\controllers"
+          $dst  = "$proj\Model\work\${{ steps.parse_dlc.outputs.project_name }}\controllers"
+          if (-not (Test-Path $dst)) { throw "Controller folder used by ServoDyn not found: $dst" }
+          Get-ChildItem $src -File |
+            Where-Object { $_.Extension -notmatch '^\.(dll|so|dylib)$' } |
+            ForEach-Object {
+              Copy-Item $_.FullName $dst -Force
+              Write-Host "Copied $($_.Name) -> $dst"
+            }
+          Write-Host "Controller files in $dst :"
+          Get-ChildItem $dst | Format-Table Name, @{N='Size (KB)';E={[math]::Round($_.Length/1KB,1)}}
+      # ------------------------------------------------------------------
       # Build the simulation matrix: one entry per .fst file
       # ------------------------------------------------------------------
       - name: Build simulation matrix
@@ -436,6 +459,7 @@ jobs:
   simulate:
     needs: prepare
     runs-on: windows-latest
+    timeout-minutes: 60
     strategy:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
       fail-fast: false
@@ -475,6 +499,7 @@ jobs:
     needs: [prepare, simulate]
     if: always()
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       # ------------------------------------------------------------------
